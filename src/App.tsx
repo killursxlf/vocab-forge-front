@@ -12,6 +12,7 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
+import Profile from "./pages/Profile";
 import TrainPage from "./pages/TrainPage";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
                 <Route path="/app" element={<AppPage />} />
                 <Route path="/cards" element={<CardsPage />} />
                 <Route path="/train" element={<TrainPage />} />
+                <Route path="/profile" element={<Profile />} />
               </Route>
               
               <Route path="*" element={<NotFound />} />
