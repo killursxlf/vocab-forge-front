@@ -29,8 +29,29 @@ export default function Login() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = 'http://localhost:3000/auth/google';
+    const API_URL = import.meta.env.VITE_API_BASE_URL;
+    const width = 500;
+    const height = 600;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+
+    const popup = window.open(
+      `${API_URL}/auth/google`,
+      'GoogleLogin',
+      `width=${width},height=${height},top=${top},left=${left}`
+    );
+
+    const listener = (event: MessageEvent) => {
+      if (event.origin !== import.meta.env.VITE_API_BASE_URL) return;
+      if (event.data === 'google-auth-success') {
+        navigate('/app');
+        window.removeEventListener('message', listener);
+      }
+    };
+
+    window.addEventListener('message', listener);
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
