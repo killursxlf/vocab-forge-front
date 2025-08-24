@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Lock, Mail, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
@@ -18,7 +18,8 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string>(''); 
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
+  const [googleSuccess, setGoogleSuccess] = useState(false); 
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -56,21 +57,42 @@ export default function Register() {
     const top = window.screen.height / 2 - height / 2;
 
     const popup = window.open(
-      `${API_URL}/auth/google`,
+      `${API_URL}/auth/google?t=${Date.now()}`,
       'GoogleLogin',
       `width=${width},height=${height},top=${top},left=${left}`
     );
 
+    const checkClosed = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(checkClosed);
+      }
+    }, 1000);
+  };
+
+  useEffect(() => {
     const listener = (event: MessageEvent) => {
-      if (event.origin !== import.meta.env.VITE_API_BASE_URL) return;
+      const API_URL = import.meta.env.VITE_API_BASE_URL;
+      console.log('popup message', event.origin, event.data);
+      
+      if (event.origin !== API_URL) return;
+      
       if (event.data === 'google-auth-success') {
-        navigate('/app');
-        window.removeEventListener('message', listener);
+        setGoogleSuccess(true);
+      } else if (event.data === 'google-auth-error') {
+        setError('Ошибка авторизации через Google');
       }
     };
-
+    
     window.addEventListener('message', listener);
-  };
+    return () => window.removeEventListener('message', listener);
+  }, []);
+
+  useEffect(() => {
+    if (googleSuccess) {
+      navigate('/app');
+      setGoogleSuccess(false);
+    }
+  }, [googleSuccess, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
@@ -134,7 +156,7 @@ export default function Register() {
                       className="pl-10"
                       value={formData.name}
                       onChange={(e) => handleChange("name", e.target.value)}
-                      required // <--- Добавляем базовую валидацию
+                      required 
                     />
                   </div>
                 </div>

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -12,17 +12,18 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string>(''); 
-  
-  const navigate = useNavigate(); 
-  const { login } = useAuth(); 
+  const [error, setError] = useState<string>('');
+  const [googleSuccess, setGoogleSuccess] = useState(false);
+
+  const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       await login(email, password);
-      navigate('/app'); 
+      navigate('/app');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Неверные учетные данные');
     }
@@ -36,22 +37,42 @@ export default function Login() {
     const top = window.screen.height / 2 - height / 2;
 
     const popup = window.open(
-      `${API_URL}/auth/google`,
+      `${API_URL}/auth/google?t=${Date.now()}`,
       'GoogleLogin',
       `width=${width},height=${height},top=${top},left=${left}`
     );
 
-    const listener = (event: MessageEvent) => {
-      if (event.data === 'google-auth-success') {
-        navigate('/app');
-        window.removeEventListener('message', listener);
+    const checkClosed = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(checkClosed);
       }
-    };
-
-
-    window.addEventListener('message', listener);
+    }, 1000);
   };
 
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      const API_URL = import.meta.env.VITE_API_BASE_URL;
+      console.log('popup message', event.origin, event.data);
+      
+      if (event.origin !== API_URL) return;
+      
+      if (event.data === 'google-auth-success') {
+        setGoogleSuccess(true);
+      } else if (event.data === 'google-auth-error') {
+        setError('Ошибка авторизации через Google');
+      }
+    };
+    
+    window.addEventListener('message', listener);
+    return () => window.removeEventListener('message', listener);
+  }, []);
+
+  useEffect(() => {
+    if (googleSuccess) {
+      navigate('/app');
+      setGoogleSuccess(false);
+    }
+  }, [googleSuccess, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
@@ -64,9 +85,7 @@ export default function Login() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             LexiTable
           </h1>
-          <p className="text-muted-foreground">
-            Войдите в свой аккаунт
-          </p>
+          <p className="text-muted-foreground">Войдите в свой аккаунт</p>
         </div>
 
         <Card className="backdrop-blur-sm bg-card/80 border-border/50">
@@ -77,10 +96,10 @@ export default function Login() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="w-full h-11 bg-white dark:bg-white text-black hover:bg-gray-50 dark:hover:bg-gray-100 border-gray-300"
-              onClick={handleGoogleLogin} // <--- Привязываем обработчик
+              onClick={handleGoogleLogin}
             >
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -102,7 +121,6 @@ export default function Login() {
               </div>
             </div>
 
-            {/* <--- 6. Оборачиваем поля в <form> --- */}
             <form onSubmit={handleEmailLogin} className="space-y-4">
               <div className="space-y-4">
                 <div className="space-y-2">
