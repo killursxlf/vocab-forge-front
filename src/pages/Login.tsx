@@ -42,12 +42,12 @@ export default function Login() {
     );
 
     const listener = (event: MessageEvent) => {
-      if (event.origin !== import.meta.env.VITE_API_BASE_URL) return;
       if (event.data === 'google-auth-success') {
         navigate('/app');
         window.removeEventListener('message', listener);
       }
     };
+
 
     window.addEventListener('message', listener);
   };
