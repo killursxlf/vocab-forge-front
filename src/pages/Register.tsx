@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Lock, Mail, User } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
@@ -19,7 +19,8 @@ export default function Register() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string>(''); 
   const navigate = useNavigate();
-  const [googleSuccess, setGoogleSuccess] = useState(false); 
+  
+  const popupRef = useRef<Window | null>(null);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -49,6 +50,10 @@ export default function Register() {
     }
   };
 
+  const cleanupGoogleLogin = () => {
+    popupRef.current = null;
+  };
+
   const handleGoogleLogin = () => {
     const API_URL = import.meta.env.VITE_API_BASE_URL;
     const width = 500;
@@ -56,43 +61,55 @@ export default function Register() {
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
 
-    const popup = window.open(
+    cleanupGoogleLogin();
+    setError('');
+
+    popupRef.current = window.open(
       `${API_URL}/auth/google?t=${Date.now()}`,
       'GoogleLogin',
       `width=${width},height=${height},top=${top},left=${left}`
     );
 
-    const checkClosed = setInterval(() => {
-      if (popup?.closed) {
-        clearInterval(checkClosed);
+    setTimeout(() => {
+      if (popupRef.current) {
+        cleanupGoogleLogin();
+        setError("Не удалось завершить авторизацию. Попробуйте еще раз.");
       }
-    }, 1000);
+    }, 30000);
   };
 
   useEffect(() => {
+    const API_URL = import.meta.env.VITE_API_BASE_URL;
+
     const listener = (event: MessageEvent) => {
-      const API_URL = import.meta.env.VITE_API_BASE_URL;
-      console.log('popup message', event.origin, event.data);
-      
-      if (event.origin !== API_URL) return;
-      
-      if (event.data === 'google-auth-success') {
-        setGoogleSuccess(true);
-      } else if (event.data === 'google-auth-error') {
-        setError('Ошибка авторизации через Google');
+      const apiUrl = new URL(API_URL);
+      if (event.origin !== apiUrl.origin) return;
+
+      console.log('Received message:', event.data);
+
+      if (event.data === "google-auth-success") {
+        cleanupGoogleLogin();
+        setTimeout(() => {
+          window.location.href = "/app";
+        }, 500);
+      } else if (event.data === "google-auth-error") {
+        cleanupGoogleLogin();
+        setError("Ошибка авторизации через Google");
       }
     };
-    
-    window.addEventListener('message', listener);
-    return () => window.removeEventListener('message', listener);
-  }, []);
+
+    window.addEventListener("message", listener);
+    return () => {
+      window.removeEventListener("message", listener);
+      cleanupGoogleLogin();
+    };
+  }, [navigate]);
 
   useEffect(() => {
-    if (googleSuccess) {
-      navigate('/app');
-      setGoogleSuccess(false);
-    }
-  }, [googleSuccess, navigate]);
+    return () => {
+      cleanupGoogleLogin();
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
@@ -242,7 +259,6 @@ export default function Register() {
                   </Label>
                 </div>
                 
-                {/* <--- Отображение ошибки --- */}
                 {error && <p className="text-sm text-center text-red-500">{error}</p>}
 
                 <Button type="submit" className="w-full">
