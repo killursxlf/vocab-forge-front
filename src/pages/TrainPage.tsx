@@ -1,6 +1,6 @@
 import AppLayout from "@/components/app/AppLayout";
 import { Button } from "@/components/ui/button";
-import { getTrainingCards, updateWord } from "@/lib/api";
+import { getTrainingCards, submitAnswer, updateWord } from "@/lib/api";
 import { Lightbulb } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -106,17 +106,21 @@ export default function Training() {
 
   const onKnow = () => {
     if (!currentCard) return;
-    setKnown((k) => k + 1);
+    setKnown(k => k + 1);
     toast.success(`Знаю: "${getCardValue(currentCard, realFrontKey)}"`);
-    updateWord({ wordId: currentCard.id, updatedData: { status: "LEARNED" } });
+    submitAnswer(currentCard.id, true).catch(() =>
+      toast.error('Не удалось отправить ответ'),
+    );
     nextCard();
   };
 
   const onDontKnow = () => {
     if (!currentCard) return;
-    setUnknown((u) => u + 1);
+    setUnknown(u => u + 1);
     toast.info(`Не знаю: "${getCardValue(currentCard, realFrontKey)}"`);
-    updateWord({ wordId: currentCard.id, updatedData: { status: "LEARNING" } });
+    submitAnswer(currentCard.id, false).catch(() =>
+      toast.error('Не удалось отправить ответ'),
+    );
     nextCard();
   };
 

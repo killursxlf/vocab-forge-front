@@ -61,7 +61,6 @@ export default function CardsSetup() {
     ];
   }, [userColumns]);
 
-  // Функция для обработки ответа API и обновления состояния
   const processApiResponse = (data: CardSettingsResponse) => {
     const columnsFromApi = data.userColumns && data.userColumns.length > 0
       ? data.userColumns
@@ -83,12 +82,9 @@ export default function CardsSetup() {
     });
   };
 
-  // Загрузка колонок для выбранных таблиц (с сохранением)
   const loadColumnsForTables = useCallback(async (selectedTables: string[]) => {
     setIsSaving(true);
     try {
-      // ИЗМЕНЕНИЕ ЗДЕСЬ: Отправляем на сервер сброс hintKey
-      // Теперь сервер всегда будет обнулять подсказку при смене таблиц.
       const response = await updateCardSettings({ 
         selectedTables, 
         hintKey: null 
@@ -99,11 +95,10 @@ export default function CardsSetup() {
     } finally {
       setIsSaving(false);
     }
-  }, []); // Зависимости не нужны, т.к. мы всегда работаем с переданными `selectedTables`
+  }, []); 
 
   const selectedStatusesSet = useMemo(() => new Set(settings.selectedStatuses as (WordStatus | "all")[]), [settings.selectedStatuses]);
-  
-  // FIX: Ensure the Set has a consistent type of `Set<string | number>` to avoid TypeScript errors.
+
   const selectedTablesSet = useMemo(() => {
     const newSet = new Set<string | number>();
     settings.selectedTables.forEach(item => {
@@ -145,8 +140,7 @@ export default function CardsSetup() {
       };
       
       const response = await updateCardSettings(fullSettings);
-      
-      // Обновляем userColumns из ответа сервера, если они есть
+
       if (response.data.data.userColumns) {
          processApiResponse(response.data.data);
       }
@@ -219,15 +213,12 @@ export default function CardsSetup() {
       newTables = ["all"];
     }
 
-    // ИЗМЕНЕНИЕ ЗДЕСЬ: Оптимистично обновляем UI для мгновенного отклика.
-    // Сразу сбрасываем hintKey в локальном состоянии.
     setSettings(prev => ({ 
       ...prev, 
       selectedTables: newTables, 
       hintKey: 'none' 
     }));
 
-    // Запускаем сохранение на сервере и обновление колонок
     loadColumnsForTables(newTables);
   };
 
