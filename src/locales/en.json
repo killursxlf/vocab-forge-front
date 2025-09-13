@@ -1,0 +1,30 @@
+{
+  "hero": {
+    "title": "Learn words with tables and flashcards",
+    "subtitle": "Create your own tables, set word statuses, and automatically get flashcards for effective spaced repetition.",
+    "buttons": {
+      "openEditor": "Open editor",
+      "learnMore": "Learn more"
+    },
+    "imageAlt": "LexiTable — a table turns into flashcards"
+  },
+  "benefits": {
+    "columns": {
+      "title": "Custom columns",
+      "text": "Add any number of columns: examples, synonyms, part of speech — anything you want."
+    },
+    "statuses": {
+      "title": "Word statuses",
+      "text": "New, Learning, Learned — control your progress and filter flashcards."
+    },
+    "cards": {
+      "title": "Cards from a table",
+      "text": "Automatically turn table rows into beautiful flashcards for review."
+    }
+  },
+  "schema": {
+    "name": "LexiTable",
+    "description": "Dictionary builder: word tables with templates and flashcards for learning.",
+    "url": "/"
+  }
+}

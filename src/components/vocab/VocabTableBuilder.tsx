@@ -288,30 +288,25 @@ const TempWordRow = memo(({
 export default function VocabTableBuilder() {
   const queryClient = useQueryClient();
   
-  // --- Состояние для UI ---
   const [selectedSetId, setSelectedSetId] = useState<number | null>(null);
   const [newColName, setNewColName] = useState("");
   const [newSetName, setNewSetName] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
   
-  // --- Состояние для поиска и фильтров ---
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   
-  // --- Состояние для временных строк ---
   const [tempWords, setTempWords] = useState<TempWord[]>([]);
 
-  // Debounce для поискового запроса
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
-    }, 1000); // 1000ms задержка
+    }, 1000); 
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // --- Загрузка данных ---
   const { data: allSets, isLoading: isLoadingSets } = useQuery({
     queryKey: ["wordSets"],
     queryFn: getWordSets,
@@ -319,11 +314,8 @@ export default function VocabTableBuilder() {
 
   const LIMIT = 50;
 
-  // Модифицированная функция для загрузки с фильтрами
   const getWordSetWithFilters = useCallback(
     (setId: number, offset: number, limit: number, filters: SearchFilters) => {
-      // Здесь вы должны модифицировать вашу API функцию getWordSetById 
-      // чтобы она принимала параметры фильтрации
       const params = new URLSearchParams();
       params.append('offset', offset.toString());
       params.append('limit', limit.toString());
@@ -336,7 +328,6 @@ export default function VocabTableBuilder() {
         params.append('status', filters.status);
       }
 
-      // Предполагается, что ваша API функция будет выглядеть так:
       return getWordSetById(setId, params.toString());
     },
     []
@@ -353,7 +344,6 @@ export default function VocabTableBuilder() {
     queryKey: ["wordSet", selectedSetId, debouncedSearch, statusFilter],
     queryFn: ({ pageParam = 0 }) => {
       if (!selectedSetId) throw new Error("No set selected");
-      // ✅ ПРАВИЛЬНО: Вызываем функцию с правильным набором аргументов
       return getWordSetWithFilters(selectedSetId, pageParam as number, LIMIT, {
         search: debouncedSearch,
         status: statusFilter
@@ -368,13 +358,11 @@ export default function VocabTableBuilder() {
     staleTime: 30000,
   });
 
-  // Мемоизированные данные
   const selectedSet = useMemo(() => selectedSetPages?.pages[0] ?? null, [selectedSetPages]);
   const allWords = useMemo(() => selectedSetPages?.pages.flatMap(p => p.words) ?? [], [selectedSetPages]);
   const columns = useMemo(() => selectedSet?.customColumns ?? [], [selectedSet]);
   const totalWords = useMemo(() => selectedSet?.total ?? 0, [selectedSet]);
 
-  // --- Мутации с оптимистичными обновлениями ---
   const createSetMutation = useMutation({ 
     mutationFn: createWordSet, 
     onSuccess: (newSet) => { 
@@ -394,7 +382,6 @@ export default function VocabTableBuilder() {
     mutationFn: addWordToSet, 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wordSet", selectedSetId] });
-      // Обновляем данные после добавления нового слова
       refetchSelectedSet();
     }
   });
@@ -467,7 +454,6 @@ export default function VocabTableBuilder() {
     }
   });
   
-  // --- Обработчики (мемоизированные) ---
   const handleCreateSet = useCallback(() => { 
     if (!newSetName.trim()) return; 
     createSetMutation.mutate({ title: newSetName, customColumns: TEMPLATES.minimal }); 

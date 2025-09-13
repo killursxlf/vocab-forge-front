@@ -76,6 +76,11 @@ export const updateWord = async ({ wordId, updatedData }: { wordId: number, upda
   return data;
 };
 
+export const submitAnswer = async (wordId: number, knows: boolean) => {
+  const { data } = await api.post(`/words/${wordId}/answer`, { knows });
+  return data;
+};
+
 export const deleteWord = async (wordId: number) => {
   const { data } = await api.delete(`/words/${wordId}`);
   return data;
