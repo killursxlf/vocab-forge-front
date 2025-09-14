@@ -26,5 +26,273 @@
     "name": "LexiTable",
     "description": "Dictionary builder: word tables with templates and flashcards for learning.",
     "url": "/"
+  },
+  "auth": {
+    "common": {
+      "appName": "LexiTable"
+    },
+    "login": {
+      "pageTitle": "Sign in to your account",
+      "heading": "Sign in",
+      "subheading": "Enter your email and password to continue",
+      "google": "Continue with Google",
+      "orContinue": "Or continue with",
+      "email": "Email",
+      "password": "Password",
+      "rememberMe": "Remember me",
+      "forgot": "Forgot password?",
+      "submit": "Sign in",
+      "noAccount": "Don’t have an account?",
+      "register": "Create account",
+      "placeholders": {
+        "email": "example@example.com",
+        "password": "••••••••"
+      }
+    },
+    "register": {
+      "pageTitle": "Create a new account",
+      "heading": "Sign up",
+      "subheading": "Fill in the form to create your account",
+      "google": "Sign up with Google",
+      "orFillForm": "Or fill in the form",
+      "name": "Name",
+      "email": "Email",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "agreePrefix": "I agree to the",
+      "and": "and",
+      "submit": "Create account",
+      "haveAccount": "Already have an account?",
+      "login": "Sign in",
+      "placeholders": {
+        "name": "Your name",
+        "email": "example@example.com",
+        "password": "••••••••",
+        "confirmPassword": "••••••••"
+      },
+      "errors": {
+        "passwordMismatch": "Passwords do not match",
+        "registerError": "Registration error",
+        "googleError": "Google sign-in failed",
+        "googleTimeout": "Couldn't complete sign-up. Please try again."
+      },
+      "success": "Registration successful!"
+    },
+    "profile": {
+      "title": "Profile",
+      "subtitle": "Manage your personal details and account settings",
+      "loading": "Loading profile…",
+      "loadError": "Failed to load profile data",
+      "retry": "Try again",
+      "sections": {
+        "personal": "Personal information",
+        "security": "Security",
+        "accountInfo": "Account information",
+        "logout": "Sign out"
+      },
+      "fields": {
+        "name": "Name",
+        "email": "Email",
+        "currentPassword": "Current password",
+        "newPassword": "New password",
+        "confirmPassword": "Confirm password",
+        "namePlaceholder": "Enter your name",
+        "emailPlaceholder": "Enter your email",
+        "currentPasswordPlaceholder": "Enter current password",
+        "newPasswordPlaceholder": "Enter new password",
+        "confirmPasswordPlaceholder": "Repeat new password",
+        "notProvided": "Not provided",
+        "passwordMasked": "••••••••"
+      },
+      "actions": {
+        "edit": "Edit",
+        "save": "Save",
+        "cancel": "Cancel",
+        "changePassword": "Change password",
+        "savePassword": "Save password",
+        "close": "Close",
+        "endSession": "End current session"
+      },
+      "labels": {
+        "registeredAt": "Registration date",
+        "lastLogin": "Last login"
+      },
+      "logout": {
+        "title": "Sign out of your account",
+        "subtitle": "End the current session",
+        "button": "Sign out"
+      },
+      "errors": {
+        "emptyName": "Name cannot be empty",
+        "emptyEmail": "Email cannot be empty",
+        "invalidEmail": "Enter a valid email address",
+        "passwordAllRequired": "Fill in all fields to change the password",
+        "passwordMismatch": "New password and confirmation do not match",
+        "passwordMin": "New password must be at least 6 characters long",
+        "saveName": "Error saving name",
+        "saveEmail": "Error saving email",
+        "savePassword": "Error changing password",
+        "load": "Error loading profile"
+      },
+      "success": {
+        "passwordChanged": "Password changed successfully"
+      },
+      "todayAt": "Today at {{time}}"
+    }
+  },
+  "navigation": {
+    "groups": {
+      "app": "LexiTable"
+    },
+    "items": {
+      "profile": "Profile",
+      "editor": "Editor",
+      "cardSettings": "Card settings",
+      "training": "Practice"
+    },
+    "header": {
+      "brand": "LexiTable",
+      "openEditor": "Open editor",
+      "signUp": "Sign up"
+    }
+  },
+  "builder": {
+    "title": "Table builder",
+    "chooseOrCreate": "Select a set to edit or create a new one",
+    "loadingSets": "Loading…",
+    "loadingTable": "Loading table…",
+    "selectSetPlaceholder": "Select a word set…",
+    "newSetPlaceholder": "New set title…",
+    "createSet": "Create",
+    "creating": "Creating…",
+    "view": "View",
+    "edit": "Edit",
+    "searchPlaceholder": "Search by words and translations…",
+    "filters": "Filters",
+    "allStatuses": "All statuses",
+    "statuses": {
+      "NEW": "New",
+      "LEARNING": "Learning",
+      "LEARNED": "Learned"
+    },
+    "clear": "Clear",
+    "shownXofY": "Shown {{shown}} of {{total}} records",
+    "searchChip": "Search: \"{{query}}\"",
+    "statusChip": "Status: {{status}}",
+    "newColumnPlaceholder": "New column…",
+    "addColumn": "Column",
+    "addWord": "Add word",
+    "tableHeaders": {
+      "word": "Word",
+      "translation": "Translation",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "tempPlaceholders": {
+      "original": "Enter word",
+      "translation": "Enter translation"
+    },
+    "requiredWordFields": "Fill in required fields: word and translation",
+    "loadingMoreRow": "Loading more data…",
+    "loadMore": "Show more ({{remaining}} left)",
+    "loadingMore": "Loading…",
+    "bottomStats": "Loaded {{shown}} of {{total}} records",
+    "moreData": "• More data available",
+    "activeFilters": "Active filters:",
+    "empty": {
+      "nothingFound": "Nothing found",
+      "tryChange": "Try changing search parameters",
+      "empty": "Empty for now",
+      "pressAdd": "Click “Add word” to start",
+      "clearFilters": "Clear filters"
+    },
+    "chips": {
+      "search": "Search",
+      "status": "Status"
+    },
+    "columnsTemplate": {
+      "word": "Word",
+      "translation": "Translation",
+      "example": "Example"
+    }
+  },
+  "cards": {
+    "setup": {
+      "title": "Card settings",
+      "saving": "Saving...",
+      "counting": "Counting...",
+      "tables": {
+        "label": "Choose tables for practice",
+        "all": "All tables",
+        "loading": "Loading...",
+        "choose": "Choose tables"
+      },
+      "sides": {
+        "front": "Front side",
+        "back": "Back side",
+        "hint": "Hint",
+        "noHint": "No hint"
+      },
+      "columns": {
+        "original": "Word",
+        "translation": "Translation"
+      },
+      "statuses": {
+        "label": "Word statuses",
+        "all": "All",
+        "new": "New",
+        "learning": "Learning",
+        "learned": "Learned",
+        "choose": "Choose status"
+      },
+      "match": {
+        "label": "Matching words",
+        "counting": "Counting..."
+      },
+      "button": {
+        "start": "Start practice"
+      },
+      "skeleton": {
+        "title": "Loading..."
+      }
+    },
+    "training": {
+      "loading": "Loading cards...",
+      "empty": {
+        "title": "No cards to train",
+        "subtitle": "Try changing filters in settings.",
+        "backBtn": "Back to settings"
+      },
+      "results": {
+        "title": "Results",
+        "total": "Cards: {{count}}",
+        "know": "Know",
+        "dontKnow": "Don’t know",
+        "backBtn": "Back to settings",
+        "retryBtn": "Again"
+      },
+      "header": {
+        "progress": "Card {{index}} / {{total}}",
+        "counters": "Know: {{know}} • Don’t know: {{dontKnow}}"
+      },
+      "actions": {
+        "knowBtn": "Left — I know",
+        "dontKnowBtn": "Right — I don’t know"
+      },
+      "hint": {
+        "title": "Hint:"
+      },
+      "help": "Click to flip • Swipe: left — know, right — don’t know",
+      "aria": {
+        "flip": "Flip the card",
+        "showHint": "Show hint"
+      },
+      "toast": {
+        "loadError": "Failed to load training cards.",
+        "submitError": "Failed to submit the answer",
+        "know": "Know: \"{{text}}\"",
+        "dontKnow": "Don’t know: \"{{text}}\""
+      }
+    }
   }
 }

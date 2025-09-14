@@ -1,16 +1,17 @@
 import AppLayout from "@/components/app/AppLayout";
 import { Button } from "@/components/ui/button";
-import { getTrainingCards, submitAnswer, updateWord } from "@/lib/api";
+import { getTrainingCards, submitAnswer } from "@/lib/api";
 import { Lightbulb } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 interface TrainingCard {
   id: number;
   status: "NEW" | "LEARNING" | "LEARNED";
-  customFields?: { [key: string]: any };
-  [key: string]: any;
+  customFields?: { [key: string]: unknown };
+  [key: string]: unknown;
 }
 
 function useQuery() {
@@ -19,6 +20,7 @@ function useQuery() {
 }
 
 export default function Training() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const q = useQuery();
 
@@ -47,16 +49,16 @@ export default function Training() {
         const shuffledData = cards?.sort(() => Math.random() - 0.5) || [];
         setDeck(shuffledData);
 
-        // Эта функция остаётся полезной для frontKey и backKey
-        const findRealKey = (obj: any, keyToFind: string): string | null => {
+        const findRealKey = (obj: Record<string, unknown> | null, keyToFind: string): string | null => {
           if (!obj || !keyToFind || keyToFind === "none") return null;
           const lowerKey = keyToFind.toLowerCase();
 
           const mainKey = Object.keys(obj).find((k) => k.toLowerCase() === lowerKey);
           if (mainKey) return mainKey;
 
-          if (obj.customFields) {
-            const customKey = Object.keys(obj.customFields).find((k) => k.toLowerCase() === lowerKey);
+          const cf = (obj as TrainingCard).customFields;
+          if (cf && typeof cf === "object") {
+            const customKey = Object.keys(cf).find((k) => k.toLowerCase() === lowerKey);
             if (customKey) return customKey;
           }
           return null;
@@ -64,26 +66,18 @@ export default function Training() {
 
         if (shuffledData.length > 0) {
           const firstCard = shuffledData[0];
-          
-          // Логика для front и back остаётся прежней
-          setRealFrontKey(findRealKey(firstCard, frontKey));
-          setRealBackKey(findRealKey(firstCard, backKey));
 
-          // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-          // Новая логика для определения ключа подсказки.
-          // Мы больше не ищем ключ из URL. Вместо этого мы берём первый ключ
-          // из объекта `customFields`, если он существует.
+          setRealFrontKey(findRealKey(firstCard as Record<string, unknown>, frontKey));
+          setRealBackKey(findRealKey(firstCard as Record<string, unknown>, backKey));
+
           let dynamicHintKey: string | null = null;
           if (hintKey !== "none" && firstCard.customFields) {
             const customKeys = Object.keys(firstCard.customFields);
             if (customKeys.length > 0) {
-              // Берём самый первый ключ из кастомных полей
-              dynamicHintKey = customKeys[0]; 
+              dynamicHintKey = customKeys[0];
             }
           }
           setRealHintKey(dynamicHintKey);
-          // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
         } else {
           setRealFrontKey(null);
           setRealBackKey(null);
@@ -96,37 +90,18 @@ export default function Training() {
       })
       .catch((err) => {
         console.error("Failed to load training cards:", err);
-        toast.error("Не удалось загрузить карточки для тренировки.");
+        toast.error(t("cards.training.toast.loadError"));
         setDeck([]);
       })
       .finally(() => setLoading(false));
-  }, [frontKey, backKey, hintKey, statusParam, tablesParam]);
+  }, [frontKey, backKey, hintKey, statusParam, tablesParam, t]);
 
   const nextCard = () => setIndex((i) => i + 1);
 
-  const onKnow = () => {
-    if (!currentCard) return;
-    setKnown(k => k + 1);
-    toast.success(`Знаю: "${getCardValue(currentCard, realFrontKey)}"`);
-    submitAnswer(currentCard.id, true).catch(() =>
-      toast.error('Не удалось отправить ответ'),
-    );
-    nextCard();
-  };
-
-  const onDontKnow = () => {
-    if (!currentCard) return;
-    setUnknown(u => u + 1);
-    toast.info(`Не знаю: "${getCardValue(currentCard, realFrontKey)}"`);
-    submitAnswer(currentCard.id, false).catch(() =>
-      toast.error('Не удалось отправить ответ'),
-    );
-    nextCard();
-  };
-
   const getCardValue = (card: TrainingCard | null, key: string | null | undefined): string => {
     if (!card || !key || key === "none") return "—";
-    if (card[key] !== undefined && card[key] !== null) return String(card[key]);
+    const direct = card[key];
+    if (direct !== undefined && direct !== null) return String(direct);
     if (card.customFields && key in card.customFields) {
       const value = card.customFields[key];
       if (value !== undefined && value !== null) return String(value);
@@ -134,11 +109,27 @@ export default function Training() {
     return "—";
   };
 
+  const onKnow = () => {
+    if (!currentCard) return;
+    setKnown((k) => k + 1);
+    toast.success(t("cards.training.toast.know", { text: getCardValue(currentCard, realFrontKey) }));
+    submitAnswer(currentCard.id, true).catch(() => toast.error(t("cards.training.toast.submitError")));
+    nextCard();
+  };
+
+  const onDontKnow = () => {
+    if (!currentCard) return;
+    setUnknown((u) => u + 1);
+    toast.info(t("cards.training.toast.dontKnow", { text: getCardValue(currentCard, realFrontKey) }));
+    submitAnswer(currentCard.id, false).catch(() => toast.error(t("cards.training.toast.submitError")));
+    nextCard();
+  };
+
   if (loading) {
     return (
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10 text-center">
-          <div className="text-lg text-muted-foreground">Загрузка карточек...</div>
+          <div className="text-lg text-muted-foreground">{t("cards.training.loading")}</div>
         </div>
       </AppLayout>
     );
@@ -148,9 +139,9 @@ export default function Training() {
     return (
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10 text-center">
-          <h1 className="text-2xl font-bold mb-4">Нет карточек для тренировки</h1>
-          <p className="text-muted-foreground mb-6">Попробуйте изменить фильтры в настройках.</p>
-          <Button onClick={() => navigate(-1)}>Назад к настройкам</Button>
+          <h1 className="text-2xl font-bold mb-4">{t("cards.training.empty.title")}</h1>
+          <p className="text-muted-foreground mb-6">{t("cards.training.empty.subtitle")}</p>
+          <Button onClick={() => navigate(-1)}>{t("cards.training.empty.backBtn")}</Button>
         </div>
       </AppLayout>
     );
@@ -160,21 +151,27 @@ export default function Training() {
     return (
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10">
-          <h1 className="text-3xl font-bold mb-4">Результаты</h1>
-          <div className="text-muted-foreground mb-6">Карточек: {deck.length}</div>
+          <h1 className="text-3xl font-bold mb-4">{t("cards.training.results.title")}</h1>
+          <div className="text-muted-foreground mb-6">
+            {t("cards.training.results.total", { count: deck.length })}
+          </div>
           <div className="grid grid-cols-2 gap-4 max-w-md">
             <div className="p-4 border rounded-lg bg-green-50 border-green-200">
-              <div className="text-sm text-green-800">Знаю</div>
+              <div className="text-sm text-green-800">{t("cards.training.results.know")}</div>
               <div className="text-2xl font-semibold text-green-900">{known}</div>
             </div>
             <div className="p-4 border rounded-lg bg-red-50 border-red-200">
-              <div className="text-sm text-red-800">Не знаю</div>
+              <div className="text-sm text-red-800">{t("cards.training.results.dontKnow")}</div>
               <div className="text-2xl font-semibold text-red-900">{unknown}</div>
             </div>
           </div>
           <div className="mt-8 flex gap-3">
-            <Button variant="soft" onClick={() => navigate(-1)}>Назад к настройкам</Button>
-            <Button variant="hero" onClick={() => window.location.reload()}>Ещё раз</Button>
+            <Button variant="soft" onClick={() => navigate(-1)}>
+              {t("cards.training.results.backBtn")}
+            </Button>
+            <Button variant="hero" onClick={() => window.location.reload()}>
+              {t("cards.training.results.retryBtn")}
+            </Button>
           </div>
         </div>
       </AppLayout>
@@ -185,8 +182,8 @@ export default function Training() {
     <AppLayout>
       <div className="w-full px-4 md:px-6 lg:px-10 py-8">
         <div className="flex items-center justify-between mb-4 text-sm text-muted-foreground">
-          <div>Карточка {index + 1} / {deck.length}</div>
-          <div>Знаю: {known} • Не знаю: {unknown}</div>
+          <div>{t("cards.training.header.progress", { index: index + 1, total: deck.length })}</div>
+          <div>{t("cards.training.header.counters", { know: known, dontKnow: unknown })}</div>
         </div>
 
         <SwipeCard
@@ -197,6 +194,7 @@ export default function Training() {
           onSwipeLeft={onDontKnow}
           onSwipeRight={onKnow}
           getCardValue={getCardValue}
+          t={t}
         />
 
         <div className="mt-6 flex items-center justify-center gap-3">
@@ -207,7 +205,7 @@ export default function Training() {
               onKnow();
             }}
           >
-            Влево — знаю
+            {t("cards.training.actions.knowBtn")}
           </Button>
           <Button
             variant="hero"
@@ -216,7 +214,7 @@ export default function Training() {
               onDontKnow();
             }}
           >
-            Вправо — не знаю
+            {t("cards.training.actions.dontKnowBtn")}
           </Button>
         </div>
       </div>
@@ -232,9 +230,19 @@ interface SwipeCardProps {
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   getCardValue: (card: TrainingCard | null, key: string | null | undefined) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
 }
 
-function SwipeCard({ card, frontKey, backKey, hintKey, onSwipeLeft, onSwipeRight, getCardValue }: SwipeCardProps) {
+function SwipeCard({
+  card,
+  frontKey,
+  backKey,
+  hintKey,
+  onSwipeLeft,
+  onSwipeRight,
+  getCardValue,
+  t,
+}: SwipeCardProps) {
   const [showBack, setShowBack] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [dx, setDx] = useState(0);
@@ -247,7 +255,7 @@ function SwipeCard({ card, frontKey, backKey, hintKey, onSwipeLeft, onSwipeRight
   }, [card]);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('button')) {
+    if ((e.target as HTMLElement).closest("button")) {
       return;
     }
     startX.current = e.clientX;
@@ -285,7 +293,7 @@ function SwipeCard({ card, frontKey, backKey, hintKey, onSwipeLeft, onSwipeRight
           if (Math.abs(dx) < 10) setShowBack((v) => !v);
         }}
         role="button"
-        aria-label="Перевернуть карточку"
+        aria-label={t("cards.training.aria.flip")}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
 
@@ -296,7 +304,7 @@ function SwipeCard({ card, frontKey, backKey, hintKey, onSwipeLeft, onSwipeRight
               e.stopPropagation();
               setShowHint(!showHint);
             }}
-            aria-label="Показать подсказку"
+            aria-label={t("cards.training.aria.showHint")}
           >
             <Lightbulb
               size={16}
@@ -312,14 +320,12 @@ function SwipeCard({ card, frontKey, backKey, hintKey, onSwipeLeft, onSwipeRight
 
           {!showBack && hintText && showHint && (
             <div className="mt-4 p-3 bg-muted/50 rounded-xl border border-border/50">
-              <div className="text-xs text-muted-foreground mb-1">Подсказка:</div>
+              <div className="text-xs text-muted-foreground mb-1">{t("cards.training.hint.title")}</div>
               <div className="text-sm font-medium text-foreground/80">{hintText}</div>
             </div>
           )}
 
-          <div className="mt-6 text-xs text-muted-foreground">
-            Кликните для переворота • Свайп: влево — знаю, вправо — не знаю
-          </div>
+          <div className="mt-6 text-xs text-muted-foreground">{t("cards.training.help")}</div>
         </div>
       </div>
     </div>

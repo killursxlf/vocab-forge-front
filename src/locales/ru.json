@@ -26,5 +26,273 @@
     "name": "LexiTable",
     "description": "Конструктор словарей: таблицы слов с шаблонами и карточки для изучения.",
     "url": "/"
+  },
+  "auth": {
+    "common": {
+      "appName": "LexiTable"
+    },
+    "login": {
+      "pageTitle": "Войдите в свой аккаунт",
+      "heading": "Вход",
+      "subheading": "Введите email и пароль, чтобы продолжить",
+      "google": "Войти через Google",
+      "orContinue": "Или продолжите с",
+      "email": "Email",
+      "password": "Пароль",
+      "rememberMe": "Запомнить меня",
+      "forgot": "Забыли пароль?",
+      "submit": "Войти",
+      "noAccount": "Нет аккаунта?",
+      "register": "Зарегистрироваться",
+      "placeholders": {
+        "email": "example@example.com",
+        "password": "••••••••"
+      }
+    },
+    "register": {
+      "pageTitle": "Создайте новый аккаунт",
+      "heading": "Регистрация",
+      "subheading": "Заполните форму для создания аккаунта",
+      "google": "Регистрация через Google",
+      "orFillForm": "Или заполните форму",
+      "name": "Имя",
+      "email": "Email",
+      "password": "Пароль",
+      "confirmPassword": "Подтвердите пароль",
+      "agreePrefix": "Я соглашаюсь с",
+      "and": "и",
+      "submit": "Создать аккаунт",
+      "haveAccount": "Уже есть аккаунт?",
+      "login": "Войти",
+      "placeholders": {
+        "name": "Ваше имя",
+        "email": "example@example.com",
+        "password": "••••••••",
+        "confirmPassword": "••••••••"
+      },
+      "errors": {
+        "passwordMismatch": "Пароли не совпадают",
+        "registerError": "Ошибка регистрации",
+        "googleError": "Ошибка авторизации через Google",
+        "googleTimeout": "Не удалось завершить авторизацию. Попробуйте ещё раз."
+      },
+      "success": "Регистрация прошла успешно!"
+    },
+    "profile": {
+      "title": "Профиль",
+      "subtitle": "Управляйте своими личными данными и настройками аккаунта",
+      "loading": "Загрузка профиля...",
+      "loadError": "Ошибка загрузки данных профиля",
+      "retry": "Попробовать снова",
+      "sections": {
+        "personal": "Личная информация",
+        "security": "Безопасность",
+        "accountInfo": "Информация об аккаунте",
+        "logout": "Выход"
+      },
+      "fields": {
+        "name": "Имя",
+        "email": "Email",
+        "currentPassword": "Текущий пароль",
+        "newPassword": "Новый пароль",
+        "confirmPassword": "Подтвердите пароль",
+        "namePlaceholder": "Введите ваше имя",
+        "emailPlaceholder": "Введите ваш email",
+        "currentPasswordPlaceholder": "Введите текущий пароль",
+        "newPasswordPlaceholder": "Введите новый пароль",
+        "confirmPasswordPlaceholder": "Повторите новый пароль",
+        "notProvided": "Не указано",
+        "passwordMasked": "••••••••"
+      },
+      "actions": {
+        "edit": "Редактировать",
+        "save": "Сохранить",
+        "cancel": "Отмена",
+        "changePassword": "Изменить пароль",
+        "savePassword": "Сохранить пароль",
+        "close": "Закрыть",
+        "endSession": "Завершить текущий сеанс"
+      },
+      "labels": {
+        "registeredAt": "Дата регистрации",
+        "lastLogin": "Последний вход"
+      },
+      "logout": {
+        "title": "Выйти из аккаунта",
+        "subtitle": "Завершить текущий сеанс",
+        "button": "Выйти"
+      },
+      "errors": {
+        "emptyName": "Имя не может быть пустым",
+        "emptyEmail": "Email не может быть пустым",
+        "invalidEmail": "Введите корректный email адрес",
+        "passwordAllRequired": "Заполните все поля для смены пароля",
+        "passwordMismatch": "Новый пароль и подтверждение не совпадают",
+        "passwordMin": "Новый пароль должен содержать минимум 6 символов",
+        "saveName": "Ошибка при сохранении имени",
+        "saveEmail": "Ошибка при сохранении email",
+        "savePassword": "Ошибка при изменении пароля",
+        "load": "Ошибка загрузки профиля"
+      },
+      "success": {
+        "passwordChanged": "Пароль успешно изменен"
+      },
+      "todayAt": "Сегодня в {{time}}"
+    }
+  },
+  "navigation": {
+    "groups": {
+      "app": "LexiTable"
+    },
+    "items": {
+      "profile": "Профиль",
+      "editor": "Редактор",
+      "cardSettings": "Настройка карточек",
+      "training": "Тренировка"
+    },
+    "header": {
+      "brand": "LexiTable",
+      "openEditor": "Открыть редактор",
+      "signUp": "Зарегистрироваться"
+    }
+  },
+  "builder": {
+    "title": "Конструктор таблицы",
+    "chooseOrCreate": "Выберите набор для редактирования или создайте новый",
+    "loadingSets": "Загрузка…",
+    "loadingTable": "Загрузка таблицы…",
+    "selectSetPlaceholder": "Выберите набор слов…",
+    "newSetPlaceholder": "Название нового набора…",
+    "createSet": "Создать",
+    "creating": "Создание…",
+    "view": "Просмотр",
+    "edit": "Редактирование",
+    "searchPlaceholder": "Поиск по словам и переводам…",
+    "filters": "Фильтры",
+    "allStatuses": "Все статусы",
+    "statuses": {
+      "NEW": "Новое",
+      "LEARNING": "Изучаем",
+      "LEARNED": "Выучено"
+    },
+    "clear": "Очистить",
+    "shownXofY": "Показано {{shown}} из {{total}} записей",
+    "searchChip": "Поиск: \"{{query}}\"",
+    "statusChip": "Статус: {{status}}",
+    "newColumnPlaceholder": "Новый столбец…",
+    "addColumn": "Столбец",
+    "addWord": "Добавить слово",
+    "tableHeaders": {
+      "word": "Слово",
+      "translation": "Перевод",
+      "status": "Статус",
+      "actions": "Действия"
+    },
+    "tempPlaceholders": {
+      "original": "Введите слово",
+      "translation": "Введите перевод"
+    },
+    "requiredWordFields": "Заполните обязательные поля: слово и перевод",
+    "loadingMoreRow": "Загружаем ещё данные…",
+    "loadMore": "Показать ещё (осталось {{remaining}})",
+    "loadingMore": "Загрузка…",
+    "bottomStats": "Загружено {{shown}} из {{total}} записей",
+    "moreData": "• Есть ещё данные",
+    "activeFilters": "Активные фильтры:",
+    "empty": {
+      "nothingFound": "Ничего не найдено",
+      "tryChange": "Попробуйте изменить параметры поиска",
+      "empty": "Пока пусто",
+      "pressAdd": "Нажмите «Добавить слово», чтобы начать",
+      "clearFilters": "Очистить фильтры"
+    },
+    "chips": {
+      "search": "Поиск",
+      "status": "Статус"
+    },
+    "columnsTemplate": {
+      "word": "Слово",
+      "translation": "Перевод",
+      "example": "Пример"
+    }
+  },
+  "cards": {
+    "setup": {
+      "title": "Настройка карточек",
+      "saving": "Сохранение...",
+      "counting": "Подсчёт...",
+      "tables": {
+        "label": "Выбор таблиц для тренировки",
+        "all": "Все таблицы",
+        "loading": "Загрузка...",
+        "choose": "Выберите таблицы"
+      },
+      "sides": {
+        "front": "Лицевая сторона",
+        "back": "Оборотная сторона",
+        "hint": "Подсказка",
+        "noHint": "Без подсказки"
+      },
+      "columns": {
+        "original": "Слово",
+        "translation": "Перевод"
+      },
+      "statuses": {
+        "label": "Статусы слов",
+        "all": "Все",
+        "new": "Новые",
+        "learning": "Изучаем",
+        "learned": "Выучено",
+        "choose": "Выберите статус"
+      },
+      "match": {
+        "label": "Подходит слов",
+        "counting": "Подсчёт..."
+      },
+      "button": {
+        "start": "Начать тренировку"
+      },
+      "skeleton": {
+        "title": "Загрузка..."
+      }
+    },
+    "training": {
+      "loading": "Загрузка карточек...",
+      "empty": {
+        "title": "Нет карточек для тренировки",
+        "subtitle": "Попробуйте изменить фильтры в настройках.",
+        "backBtn": "Назад к настройкам"
+      },
+      "results": {
+        "title": "Результаты",
+        "total": "Карточек: {{count}}",
+        "know": "Знаю",
+        "dontKnow": "Не знаю",
+        "backBtn": "Назад к настройкам",
+        "retryBtn": "Ещё раз"
+      },
+      "header": {
+        "progress": "Карточка {{index}} / {{total}}",
+        "counters": "Знаю: {{know}} • Не знаю: {{dontKnow}}"
+      },
+      "actions": {
+        "knowBtn": "Влево — знаю",
+        "dontKnowBtn": "Вправо — не знаю"
+      },
+      "hint": {
+        "title": "Подсказка:"
+      },
+      "help": "Кликните для переворота • Свайп: влево — знаю, вправо — не знаю",
+      "aria": {
+        "flip": "Перевернуть карточку",
+        "showHint": "Показать подсказку"
+      },
+      "toast": {
+        "loadError": "Не удалось загрузить карточки для тренировки.",
+        "submitError": "Не удалось отправить ответ",
+        "know": "Знаю: \"{{text}}\"",
+        "dontKnow": "Не знаю: \"{{text}}\""
+      }
+    }
   }
 }

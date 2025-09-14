@@ -13,8 +13,16 @@ i18n
       en: { translation: en },
       ru: { translation: ru },
     },
-    fallbackLng: "en", 
+    fallbackLng: "en",              
+    supportedLngs: ["en", "ru"],  
+    detection: {
+      order: ["localStorage", "navigator"], 
+      caches: ["localStorage"],           
+      lookupLocalStorage: "i18nextLng",    
+    },
+    load: "languageOnly",
     interpolation: { escapeValue: false },
+    cleanCode: true,
   });
 
 export default i18n;
