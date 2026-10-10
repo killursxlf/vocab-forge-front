@@ -25,3 +25,5 @@ dist-ssr
 
 # Environment variables
 .env
+# Preserved lockfiles from the Bun text-lock migration
+.lock-backups/

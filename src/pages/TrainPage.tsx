@@ -281,7 +281,7 @@ function SwipeCard({
   return (
     <div className="max-w-sm mx-auto select-none">
       <div
-        className="rounded-3xl border p-8 text-center bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-lg shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer min-h-[320px] flex flex-col justify-center relative overflow-hidden"
+        className="rounded-3xl border p-8 text-center bg-linear-to-br from-card/90 to-card/70 backdrop-blur-lg shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer min-h-[320px] flex flex-col justify-center relative overflow-hidden"
         style={{
           transform: `translateX(${dx}px) rotate(${dx / 30}deg)`,
           transition: startX.current !== null ? "none" : "transform 0.2s ease",
@@ -295,7 +295,7 @@ function SwipeCard({
         role="button"
         aria-label={t("cards.training.aria.flip")}
       >
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-transparent pointer-events-none" />
 
         {hintText && hintText !== "—" && !showBack && (
           <button
