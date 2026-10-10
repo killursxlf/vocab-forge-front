@@ -9,26 +9,17 @@ import {
   getWordSetById,
   getWordSets,
   updateWord,
-  updateWordSet
+  updateWordSet,
+  errorMessage
 } from "@/lib/api";
-import { useMutation, useInfiniteQuery, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useMutation, useInfiniteQuery, useQueryClient, useQuery, useIsMutating, type InfiniteData } from "@tanstack/react-query";
 import { Check, Edit3, Eye, Plus, Trash2, X, Search, Filter } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useMemo, useState, useCallback, memo, useEffect } from "react";
-
-export type WordStatus = "NEW" | "LEARNING" | "LEARNED";
-export interface ColumnDef { id: string; key: string; name: string; }
-export interface Word { id: number; original: string; translation: string; status: WordStatus; createdAt: string; customFields: Record<string, string>; }
-export interface WordSet { id: number; title: string; customColumns: ColumnDef[]; words: Word[]; }
-
-interface WordSetPage {
-  id: number;
-  title: string;
-  customColumns: { id: string; key: string; name: string }[];
-  words: Word[];
-  hasMore: boolean;
-  total: number;
-}
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import type { WordStatus, ColumnDef, Word, WordSet, WordSetPage } from "@/lib/types";
+export type { WordStatus, ColumnDef, Word, WordSet } from "@/lib/types";
+import { useMemo, useState, useCallback, memo, useEffect, useRef } from "react";
 
 interface TempWord {
   tempId: string;
@@ -45,15 +36,31 @@ interface SearchFilters {
 
 export type Row = Word;
 
+
+function EditableCell({ value, onSave, className }: { value: string; onSave: (value: string) => Promise<void>; className?: string }) {
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDraft(value), [value]);
+  return <Input value={draft} className={className} disabled={saving}
+    aria-label={value || 'Word field'}
+    onChange={e => setDraft(e.target.value)}
+    onBlur={async () => {
+      if (draft === value) return;
+      setSaving(true);
+      try { await onSave(draft); } catch { setDraft(value); }
+      finally { setSaving(false); }
+    }} />;
+}
+
 const StatusBadge = memo(({ status }: { status: WordStatus }) => {
   const { t } = useTranslation();
-  
+
   const colors = {
     NEW: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
     LEARNING: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
     LEARNED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800'
   };
-  
+
   const icons = {
     NEW: '🆕',
     LEARNING: '📚',
@@ -68,27 +75,27 @@ const StatusBadge = memo(({ status }: { status: WordStatus }) => {
   );
 });
 
-const WordRow = memo(({ 
-  word, 
-  index, 
-  columns, 
-  isEditMode, 
-  onUpdateCell, 
-  onUpdateStatus, 
-  onRemove 
+const WordRow = memo(({
+  word,
+  index,
+  columns,
+  isEditMode,
+  onUpdateCell,
+  onUpdateStatus,
+  onRemove
 }: {
   word: Word;
   index: number;
   columns: ColumnDef[];
   isEditMode: boolean;
-  onUpdateCell: (wordId: number, key: string, value: string) => void;
+  onUpdateCell: (wordId: number, key: string, value: string) => Promise<void>;
   onUpdateStatus: (wordId: number, status: WordStatus) => void;
   onRemove: (wordId: number) => void;
 }) => {
   const { t } = useTranslation();
-  
+
   const handleCellBlur = useCallback((key: string, value: string) => {
-    onUpdateCell(word.id, key, value);
+    return onUpdateCell(word.id, key, value);
   }, [word.id, onUpdateCell]);
 
   const handleStatusChange = useCallback((status: string) => {
@@ -105,9 +112,9 @@ const WordRow = memo(({
     } ${index % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
       <td className="px-4 py-3">
         {isEditMode ? (
-          <Input 
-            defaultValue={word.original} 
-            onBlur={e => handleCellBlur('original', e.target.value)}
+          <EditableCell
+            value={word.original}
+            onSave={value => handleCellBlur('original', value)}
             className="min-w-[120px]"
           />
         ) : (
@@ -116,9 +123,9 @@ const WordRow = memo(({
       </td>
       <td className="px-4 py-3">
         {isEditMode ? (
-          <Input 
-            defaultValue={word.translation} 
-            onBlur={e => handleCellBlur('translation', e.target.value)}
+          <EditableCell
+            value={word.translation}
+            onSave={value => handleCellBlur('translation', value)}
             className="min-w-[120px]"
           />
         ) : (
@@ -128,9 +135,9 @@ const WordRow = memo(({
       {columns.map(column => (
         <td key={column.key} className="px-4 py-3">
           {isEditMode ? (
-            <Input 
-              defaultValue={word.customFields?.[column.key] ?? ""} 
-              onBlur={e => handleCellBlur(column.key, e.target.value)}
+            <EditableCell
+              value={word.customFields?.[column.key] ?? ""}
+              onSave={value => handleCellBlur(column.key, value)}
               className="min-w-[100px]"
             />
           ) : (
@@ -158,10 +165,10 @@ const WordRow = memo(({
       </td>
       {isEditMode && (
         <td className="px-4 py-3">
-          <Button 
-            size="sm" 
-            variant="ghost" 
-            onClick={handleRemove}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleRemove} aria-label={t("builder.removeWord")}
             className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-4 w-4" />
@@ -188,7 +195,7 @@ const TempWordRow = memo(({
   isSaving: boolean;
 }) => {
   const { t } = useTranslation();
-  
+
   const handleUpdate = useCallback((key: string, value: string) => {
     onUpdate(tempWord.tempId, key, value);
   }, [tempWord.tempId, onUpdate]);
@@ -204,16 +211,16 @@ const TempWordRow = memo(({
   return (
     <tr className="border-b bg-primary/5 border-primary/20">
       <td className="px-4 py-3">
-        <Input 
-          value={tempWord.original} 
+        <Input disabled={isSaving}
+          value={tempWord.original}
           onChange={e => handleUpdate('original', e.target.value)}
           placeholder={t('builder.tempPlaceholders.original')}
           className="border-primary/30 focus:border-primary"
         />
       </td>
       <td className="px-4 py-3">
-        <Input 
-          value={tempWord.translation} 
+        <Input disabled={isSaving}
+          value={tempWord.translation}
           onChange={e => handleUpdate('translation', e.target.value)}
           placeholder={t('builder.tempPlaceholders.translation')}
           className="border-primary/30 focus:border-primary"
@@ -221,16 +228,16 @@ const TempWordRow = memo(({
       </td>
       {columns.map(column => (
         <td key={column.key} className="px-4 py-3">
-          <Input 
-            value={tempWord.customFields?.[column.key] ?? ""} 
+          <Input disabled={isSaving}
+            value={tempWord.customFields?.[column.key] ?? ""}
             onChange={e => handleUpdate(column.key, e.target.value)}
             className="border-primary/30 focus:border-primary"
           />
         </td>
       ))}
       <td className="px-4 py-3">
-        <Select 
-          value={tempWord.status} 
+        <Select disabled={isSaving}
+          value={tempWord.status}
           onValueChange={(v) => handleUpdate('status', v)}
         >
           <SelectTrigger className="w-[130px] border-primary/30">
@@ -245,19 +252,19 @@ const TempWordRow = memo(({
       </td>
       <td className="px-4 py-3">
         <div className="flex gap-1">
-          <Button 
+          <Button
             size="sm"
-            variant="ghost" 
-            onClick={handleSave}
+            variant="ghost"
+            onClick={handleSave} aria-label={t("builder.saveWord")}
             disabled={isSaving}
             className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-100 dark:hover:bg-green-900/20"
           >
             <Check className="h-4 w-4" />
           </Button>
-          <Button 
+          <Button
             size="sm"
-            variant="ghost" 
-            onClick={handleRemove}
+            variant="ghost"
+            onClick={handleRemove} aria-label={t("builder.removeWord")}
             className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
           >
             <X className="h-4 w-4" />
@@ -275,35 +282,56 @@ export default function VocabTableBuilder() {
   const [newColName, setNewColName] = useState("");
   const [newSetName, setNewSetName] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
-  
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  
-  const [tempWords, setTempWords] = useState<TempWord[]>([]);
 
-  // Templates with i18n keys
-  const TEMPLATES: Record<string, ColumnDef[]> = {
-    basic: [
-      { id: "original", key: "original", name: t('builder.columnsTemplate.word') },
-      { id: "translation", key: "translation", name: t('builder.columnsTemplate.translation') },
-      { id: "example", key: "example", name: t('builder.columnsTemplate.example') },
-    ],
-    minimal: [
-      { id: "original", key: "original", name: t('builder.columnsTemplate.word') },
-      { id: "translation", key: "translation", name: t('builder.columnsTemplate.translation') },
-    ],
+
+  const { user } = useAuth();
+  const savingDrafts = useRef(new Set<string>());
+  const draftKey = 'lexitable:drafts:' + user.id;
+  const readDrafts = (): Record<string, TempWord[]> => {
+    try {
+      const value = sessionStorage.getItem(draftKey);
+      const saved: Record<string, TempWord[]> = value ? JSON.parse(value) : {};
+      if (!saved || Array.isArray(saved) || typeof saved !== 'object' ||
+          Object.values(saved).some(rows => !Array.isArray(rows) || rows.some(row =>
+            !row || typeof row.tempId !== 'string' || typeof row.original !== 'string' ||
+            typeof row.translation !== 'string' || !['NEW', 'LEARNING', 'LEARNED'].includes(row.status) ||
+            !row.customFields || typeof row.customFields !== 'object' || Array.isArray(row.customFields)))) {
+        throw new Error('Invalid saved drafts');
+      }
+      return saved;
+    } catch {
+      toast.error(t('builder.draftStorageError'));
+      return {};
+    }
   };
+  const { data: drafts = {} } = useQuery({
+    queryKey: ['wordDrafts', user.id], queryFn: readDrafts, initialData: readDrafts,
+    staleTime: Infinity, gcTime: Infinity,
+  });
+  const savingWords = useIsMutating({ mutationKey: ['addWord', user.id] }) > 0;
+  const tempWords = useMemo(() => drafts[String(selectedSetId)] ?? [], [drafts, selectedSetId]);
+  const setTempWords = useCallback((update: (previous: TempWord[]) => TempWord[]) => {
+    const next = queryClient.setQueryData<Record<string, TempWord[]>>(['wordDrafts', user.id], previous => ({
+      ...previous,
+      [String(selectedSetId)]: update(previous?.[String(selectedSetId)] ?? []),
+    }));
+    try { sessionStorage.setItem(draftKey, JSON.stringify(next)); }
+    catch { toast.error(t('builder.draftStorageError'), { id: 'draft-storage' }); }
+  }, [selectedSetId, queryClient, user.id, draftKey, t]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
-    }, 1000); 
+    }, 1000);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: allSets, isLoading: isLoadingSets } = useQuery({
+  const { data: allSets, isLoading: isLoadingSets, isError: setsError, refetch: reloadSets } = useQuery({
     queryKey: ["wordSets"],
     queryFn: getWordSets,
   });
@@ -315,11 +343,11 @@ export default function VocabTableBuilder() {
       const params = new URLSearchParams();
       params.append('offset', offset.toString());
       params.append('limit', limit.toString());
-      
+
       if (filters.search) {
         params.append('search', filters.search);
       }
-      
+
       if (filters.status && filters.status !== 'all') {
         params.append('status', filters.status);
       }
@@ -335,7 +363,8 @@ export default function VocabTableBuilder() {
     hasNextPage,
     isFetchingNextPage,
     isLoading: isLoadingSelectedSet,
-    refetch: refetchSelectedSet
+    refetch: refetchSelectedSet,
+    isError: selectedSetError
   } = useInfiniteQuery({
     queryKey: ["wordSet", selectedSetId, debouncedSearch, statusFilter],
     queryFn: ({ pageParam = 0 }) => {
@@ -356,109 +385,73 @@ export default function VocabTableBuilder() {
 
   const selectedSet = useMemo(() => selectedSetPages?.pages[0] ?? null, [selectedSetPages]);
   const allWords = useMemo(() => selectedSetPages?.pages.flatMap(p => p.words) ?? [], [selectedSetPages]);
-  const columns = useMemo(() => selectedSet?.customColumns ?? [], [selectedSet]);
+  const columns = useMemo(() => selectedSet?.customColumns.filter(c => !["original", "translation", "word"].includes(c.key)) ?? [], [selectedSet]);
   const totalWords = useMemo(() => selectedSet?.total ?? 0, [selectedSet]);
 
-  const createSetMutation = useMutation({ 
-    mutationFn: createWordSet, 
-    onSuccess: (newSet) => { 
-      queryClient.invalidateQueries({ queryKey: ['wordSets'] }); 
-      setSelectedSetId(newSet.id); 
-    } 
+
+  const showWriteError = (error: unknown) => toast.error(errorMessage(error, t('builder.saveError')));
+  const createSetMutation = useMutation({
+    mutationFn: createWordSet,
+    onSuccess: newSet => {
+      queryClient.invalidateQueries({ queryKey: ['wordSets'] });
+      setSelectedSetId(newSet.id);
+      setNewSetName("");
+    },
+    onError: showWriteError,
   });
-  
-  const updateSetMutation = useMutation({ 
-    mutationFn: updateWordSet, 
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wordSet", selectedSetId] });
-    }
+  const updateSetMutation = useMutation({
+    mutationFn: updateWordSet,
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["wordSet", variables.setId] });
+      queryClient.invalidateQueries({ queryKey: ["wordSets"] });
+      setNewColName("");
+    },
+    onError: showWriteError,
   });
-  
-  const addWordMutation = useMutation({ 
-    mutationFn: addWordToSet, 
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wordSet", selectedSetId] });
-      refetchSelectedSet();
-    }
+  const addWordMutation = useMutation({
+    mutationKey: ['addWord', user.id],
+    mutationFn: addWordToSet,
+    onSuccess: (_, variables) => { queryClient.invalidateQueries({ queryKey: ["wordSet", variables.setId] }); },
+    onError: showWriteError,
   });
-  
-  const updateWordMutation = useMutation({ 
+  const updateWordMutation = useMutation({
     mutationFn: updateWord,
-    onMutate: async ({ wordId, updatedData }) => {
-      await queryClient.cancelQueries({ queryKey: ["wordSet", selectedSetId] });
-      
-      const previousData = queryClient.getQueryData(["wordSet", selectedSetId]);
-      
-      queryClient.setQueryData(["wordSet", selectedSetId], (old: any) => {
-        if (!old) return old;
-        
-        return {
-          ...old,
-          pages: old.pages.map((page: WordSetPage) => ({
-            ...page,
-            words: page.words.map((word: Word) => 
-              word.id === wordId 
-                ? { ...word, ...updatedData }
-                : word
-            )
-          }))
-        };
-      });
-
-      return { previousData };
+    scope: { id: 'word-edits' },
+    onSuccess: updated => {
+      queryClient.setQueriesData<InfiniteData<WordSetPage>>({ queryKey: ["wordSet"] }, old => old ? ({
+        ...old, pages: old.pages.map(page => ({
+          ...page, words: page.words.map(word => word.id === updated.id ? updated : word),
+        })),
+      }) : old);
     },
-    onError: (err, variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(["wordSet", selectedSetId], context.previousData);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["wordSet", selectedSetId] });
-    }
+    onError: showWriteError,
+    onSettled: () => { queryClient.invalidateQueries({ queryKey: ["wordSet"] }); },
   });
-  
-  const deleteWordMutation = useMutation({ 
+  const deleteWordMutation = useMutation({
     mutationFn: deleteWord,
-    onMutate: async (wordId) => {
-      await queryClient.cancelQueries({ queryKey: ["wordSet", selectedSetId] });
-      
-      const previousData = queryClient.getQueryData(["wordSet", selectedSetId]);
-      
-      queryClient.setQueryData(["wordSet", selectedSetId], (old: any) => {
-        if (!old) return old;
-        
-        return {
-          ...old,
-          pages: old.pages.map((page: WordSetPage) => ({
-            ...page,
-            words: page.words.filter((word: Word) => word.id !== wordId),
-            total: page.total - 1
-          }))
-        };
-      });
-
-      return { previousData };
+    scope: { id: 'word-edits' },
+    onSuccess: (_, wordId) => {
+      queryClient.setQueriesData<InfiniteData<WordSetPage>>({ queryKey: ["wordSet"] }, old => old ? ({
+        ...old, pages: old.pages.map(page => ({
+          ...page, words: page.words.filter(word => word.id !== wordId),
+        })),
+      }) : old);
     },
-    onError: (err, variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(["wordSet", selectedSetId], context.previousData);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["wordSet", selectedSetId] });
-      refetchSelectedSet();
-    }
+    onError: showWriteError,
+    onSettled: () => { queryClient.invalidateQueries({ queryKey: ["wordSet"] }); },
   });
-  
-  const handleCreateSet = useCallback(() => { 
-    if (!newSetName.trim()) return; 
-    createSetMutation.mutate({ title: newSetName, customColumns: TEMPLATES.minimal }); 
-    setNewSetName(""); 
-  }, [newSetName, createSetMutation, TEMPLATES.minimal]);
+
+  const handleCreateSet = useCallback(() => {
+    if (!newSetName.trim()) return;
+    createSetMutation.mutate({
+      title: newSetName.trim(),
+      customColumns: [{ id: 'example', key: 'example', name: t('builder.columnsTemplate.example') }],
+    });
+  }, [newSetName, createSetMutation, t]);
 
   const addTempRow = useCallback(() => {
     if (!selectedSetId) return;
-    
+
     const newTempWord: TempWord = {
       tempId: `temp-${Date.now()}`,
       original: "",
@@ -466,19 +459,20 @@ export default function VocabTableBuilder() {
       status: "NEW",
       customFields: {}
     };
-    
+
     setTempWords(prev => [...prev, newTempWord]);
-  }, [selectedSetId]);
+  }, [selectedSetId, setTempWords]);
 
   const saveTempWord = useCallback(async (tempId: string) => {
     const tempWord = tempWords.find(w => w.tempId === tempId);
-    if (!tempWord || !selectedSetId) return;
+    if (!tempWord || !selectedSetId || savingWords || savingDrafts.current.has(tempId)) return;
 
     if (!tempWord.original.trim() || !tempWord.translation.trim()) {
-      alert(t('builder.requiredWordFields'));
+      toast.error(t('builder.requiredWordFields'));
       return;
     }
 
+    savingDrafts.current.add(tempId);
     try {
       await addWordMutation.mutateAsync({
         setId: selectedSetId,
@@ -491,44 +485,43 @@ export default function VocabTableBuilder() {
       });
 
       setTempWords(prev => prev.filter(w => w.tempId !== tempId));
-    } catch (error) {
-      console.error("Error saving word:", error);
-    }
-  }, [tempWords, selectedSetId, addWordMutation, t]);
+    } catch { /* The mutation shows the error and keeps the draft. */ }
+    finally { savingDrafts.current.delete(tempId); }
+  }, [tempWords, selectedSetId, addWordMutation, t, setTempWords, savingWords]);
 
   const removeTempWord = useCallback((tempId: string) => {
     setTempWords(prev => prev.filter(w => w.tempId !== tempId));
-  }, []);
+  }, [setTempWords]);
 
   const updateTempWord = useCallback((tempId: string, key: string, value: string) => {
     setTempWords(prev => prev.map(word => {
       if (word.tempId !== tempId) return word;
-      
+
       if (key === 'original' || key === 'translation' || key === 'status') {
         return { ...word, [key]: value };
       } else {
         return { ...word, customFields: { ...word.customFields, [key]: value } };
       }
     }));
-  }, []);
+  }, [setTempWords]);
 
-  const updateCellOnBlur = useCallback((wordId: number, key: string, value: string) => { 
-    const row = allWords.find(r => r.id === wordId); 
-    if (!row) return; 
-    
-    const currentValue = key === 'original' || key === 'translation' 
-      ? row[key as keyof Word] 
+  const updateCellOnBlur = useCallback(async (wordId: number, key: string, value: string) => {
+    const row = allWords.find(r => r.id === wordId);
+    if (!row) return;
+
+    const currentValue = key === 'original' || key === 'translation'
+      ? row[key as keyof Word]
       : row.customFields?.[key] || "";
-    
+
     if (currentValue === value) return;
-    
-    const isFixed = key === 'original' || key === 'translation'; 
-    const updatedData = isFixed ? { [key]: value } : { customFields: { ...row.customFields, [key]: value } }; 
-    updateWordMutation.mutate({ wordId, updatedData }); 
+
+    const isFixed = key === 'original' || key === 'translation';
+    const updatedData = isFixed ? { [key]: value } : { customFields: { [key]: value } };
+    await updateWordMutation.mutateAsync({ wordId, updatedData });
   }, [allWords, updateWordMutation]);
-  
-  const updateStatus = useCallback((wordId: number, status: WordStatus) => { 
-    updateWordMutation.mutate({ wordId, updatedData: { status } }); 
+
+  const updateStatus = useCallback((wordId: number, status: WordStatus) => {
+    updateWordMutation.mutate({ wordId, updatedData: { status } });
   }, [updateWordMutation]);
 
   const removeRow = useCallback((wordId: number) => {
@@ -537,33 +530,35 @@ export default function VocabTableBuilder() {
 
   const handleSetChange = useCallback((value: string) => {
     setSelectedSetId(Number(value));
-    setTempWords([]);
     // Reset filters when changing set
     setSearchQuery("");
     setStatusFilter("all");
     setDebouncedSearch("");
   }, []);
 
-  const addColumn = useCallback(() => { 
-    if (!selectedSet || !newColName.trim()) return; 
-    const key = newColName.toLowerCase().replace(/\s+/g, "_"); 
-    if (selectedSet.customColumns.some(c => c.key === key)) return; 
-    updateSetMutation.mutate({ 
-      setId: selectedSet.id, 
-      updatedData: { 
-        customColumns: [...selectedSet.customColumns, { id: key, key, name: newColName }] 
-      } 
-    }); 
-    setNewColName(""); 
-  }, [selectedSet, newColName, updateSetMutation]);
-  
-  const removeColumn = useCallback((keyToRemove: string) => { 
-    if (!selectedSet) return; 
-    const newColumns = selectedSet.customColumns.filter(c => c.key !== keyToRemove); 
-    updateSetMutation.mutate({ 
-      setId: selectedSet.id, 
-      updatedData: { customColumns: newColumns } 
-    }); 
+  const addColumn = useCallback(() => {
+    if (!selectedSet || !newColName.trim() || updateSetMutation.isPending) return;
+    const key = newColName.trim().toLowerCase().replace(/\s+/g, "_");
+    if (["id", "original", "word", "translation", "status", "createdat", "customfields", "wordsetid", "timesseen", "timescorrect", "successstreak", "missstreak", "lastreviewedat", "learnedat", "__proto__", "constructor", "prototype"].includes(key)) {
+      toast.error(t('builder.reservedColumn'));
+      return;
+    }
+    if (selectedSet.customColumns.some(c => c.key === key)) { toast.error(t('builder.duplicateColumn')); return; }
+    updateSetMutation.mutate({
+      setId: selectedSet.id,
+      updatedData: {
+        customColumns: [...selectedSet.customColumns, { id: key, key, name: newColName }]
+      }
+    });
+  }, [selectedSet, newColName, updateSetMutation, t]);
+
+  const removeColumn = useCallback((keyToRemove: string) => {
+    if (!selectedSet) return;
+    const newColumns = selectedSet.customColumns.filter(c => c.key !== keyToRemove);
+    updateSetMutation.mutate({
+      setId: selectedSet.id,
+      updatedData: { customColumns: newColumns }
+    });
   }, [selectedSet, updateSetMutation]);
 
   // Clear filters
@@ -589,8 +584,8 @@ export default function VocabTableBuilder() {
   return (
     <Card className="glass-card">
       <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle className="text-2xl font-bold">
               {selectedSet ? selectedSet.title : t('builder.title')}
             </CardTitle>
@@ -598,14 +593,15 @@ export default function VocabTableBuilder() {
               {t('builder.chooseOrCreate')}
             </CardDescription>
           </div>
-          
+
           {selectedSet && (
-            <div className="flex items-center gap-3 p-3 bg-background/50 rounded-lg border">
+            <div className="flex items-center gap-3 shrink-0 p-3 bg-background/50 rounded-lg border">
               <Eye className={`h-4 w-4 transition-colors ${!isEditMode ? 'text-primary' : 'text-muted-foreground'}`} />
               <button
                 onClick={() => setIsEditMode(!isEditMode)}
                 className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted transition-colors hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 data-[checked]:bg-primary"
-                data-checked={isEditMode}
+                data-checked={isEditMode || undefined}
+                role="switch" aria-checked={isEditMode} aria-label={t("builder.editMode")}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-background shadow-lg transition-transform ${
                   isEditMode ? 'translate-x-6' : 'translate-x-1'
@@ -616,8 +612,11 @@ export default function VocabTableBuilder() {
           )}
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-6">
+        {setsError && <div role="alert"><p>{t('builder.loadError')}</p><Button onClick={() => reloadSets()}>{t('auth.profile.retry')}</Button></div>}
+        {selectedSetError && <div role="alert"><p>{t('builder.loadError')}</p><Button onClick={() => refetchSelectedSet()}>{t('auth.profile.retry')}</Button></div>}
+
         {/* Control panel */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 bg-background/30 border rounded-lg">
           <div className="space-y-3">
@@ -634,16 +633,16 @@ export default function VocabTableBuilder() {
               </SelectContent>
             </Select>
           </div>
-          
+
           <div className="flex gap-2">
-            <Input 
-              placeholder={t('builder.newSetPlaceholder')} 
-              value={newSetName} 
+            <Input
+              placeholder={t('builder.newSetPlaceholder')}
+              value={newSetName} disabled={createSetMutation.isPending}
               onChange={e => setNewSetName(e.target.value)}
               className="flex-1"
             />
-            <Button 
-              onClick={handleCreateSet} 
+            <Button
+              onClick={handleCreateSet}
               disabled={createSetMutation.isPending}
               variant="soft"
             >
@@ -651,24 +650,24 @@ export default function VocabTableBuilder() {
             </Button>
           </div>
         </div>
-        
+
         {isLoadingSelectedSet && (
           <div className="flex items-center justify-center p-8">
             <div className="animate-pulse text-muted-foreground">{t('builder.loadingTable')}</div>
           </div>
         )}
-        
+
         {selectedSet && (
           <>
             {/* Search and filters panel */}
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row gap-4 p-4 bg-gradient-to-r from-background/80 to-background/60 border rounded-lg backdrop-blur-sm">
+              <div className="flex flex-col sm:flex-row gap-4 p-4 bg-linear-to-r from-background/80 to-background/60 border rounded-lg backdrop-blur-sm">
                 {/* Search */}
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input 
-                    placeholder={t('builder.searchPlaceholder')} 
-                    value={searchQuery} 
+                  <Input
+                    placeholder={t('builder.searchPlaceholder')}
+                    value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     className="pl-10 pr-4 bg-background/50 border-border/50 focus:bg-background transition-colors"
                   />
@@ -683,7 +682,7 @@ export default function VocabTableBuilder() {
                     </Button>
                   )}
                 </div>
-                
+
                 {/* Filters */}
                 <div className="flex items-center gap-3">
                   <Filter className="h-4 w-4 text-muted-foreground" />
@@ -698,10 +697,10 @@ export default function VocabTableBuilder() {
                       <SelectItem value="LEARNED">✅ {t('builder.statuses.LEARNED')}</SelectItem>
                     </SelectContent>
                   </Select>
-                  
+
                   {(searchQuery || statusFilter !== "all") && (
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={clearFilters}
                       className="text-muted-foreground hover:text-foreground"
@@ -712,7 +711,7 @@ export default function VocabTableBuilder() {
                   )}
                 </div>
               </div>
-              
+
               {/* Results info */}
               {(searchQuery || statusFilter !== "all") && (
                 <div className="flex items-center justify-between px-4 py-2 bg-primary/5 border border-primary/20 rounded-lg">
@@ -722,7 +721,7 @@ export default function VocabTableBuilder() {
                       {t('builder.shownXofY', { shown: allWords.length, total: totalWords })}
                     </span>
                   </div>
-                  
+
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {searchQuery && (
                       <span className="px-2 py-1 bg-background rounded border">
@@ -743,18 +742,18 @@ export default function VocabTableBuilder() {
             {isEditMode && (
               <div className="flex flex-wrap items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <Input 
-                    placeholder={t('builder.newColumnPlaceholder')} 
-                    value={newColName} 
+                  <Input
+                    placeholder={t('builder.newColumnPlaceholder')}
+                    value={newColName} disabled={updateSetMutation.isPending}
                     onChange={e => setNewColName(e.target.value)}
                     className="w-48"
                   />
-                  <Button variant="outline" onClick={addColumn} size="sm">
+                  <Button variant="outline" onClick={addColumn} size="sm" disabled={updateSetMutation.isPending}>
                     <Plus className="h-4 w-4 mr-1" />
                     {t('builder.addColumn')}
                   </Button>
                 </div>
-                
+
                 <div className="ml-auto">
                   <Button variant="hero" onClick={addTempRow}>
                     <Plus className="h-4 w-4 mr-1" />
@@ -782,10 +781,12 @@ export default function VocabTableBuilder() {
                           <div className="flex items-center gap-2">
                             <span>{c.name}</span>
                             {isEditMode && (
-                              <Button 
-                                size="sm" 
-                                variant="ghost" 
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={t("builder.removeColumn", { name: c.name })}
                                 onClick={() => removeColumn(c.key)}
+                                disabled={updateSetMutation.isPending}
                                 className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                               >
                                 <X className="h-3 w-3" />
@@ -814,7 +815,7 @@ export default function VocabTableBuilder() {
                         onRemove={removeRow}
                       />
                     ))}
-                    
+
                     {/* Temporary unsaved rows */}
                     {tempWords.map(tempWord => (
                       <TempWordRow
@@ -824,10 +825,10 @@ export default function VocabTableBuilder() {
                         onUpdate={updateTempWord}
                         onSave={saveTempWord}
                         onRemove={removeTempWord}
-                        isSaving={addWordMutation.isPending}
+                        isSaving={savingWords}
                       />
                     ))}
-                    
+
                     {/* Loading state */}
                     {isFetchingNextPage && (
                       <tr>
@@ -839,7 +840,7 @@ export default function VocabTableBuilder() {
                         </td>
                       </tr>
                     )}
-                    
+
                     {/* Empty state */}
                     {allWords.length === 0 && tempWords.length === 0 && !isLoadingSelectedSet && (
                       <tr>
@@ -850,21 +851,21 @@ export default function VocabTableBuilder() {
                             </div>
                             <div className="space-y-2">
                               <div className="text-lg font-medium">
-                                {(searchQuery || statusFilter !== "all") 
+                                {(searchQuery || statusFilter !== "all")
                                   ? t('builder.empty.nothingFound')
                                   : t('builder.empty.empty')
                                 }
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {(searchQuery || statusFilter !== "all") 
+                                {(searchQuery || statusFilter !== "all")
                                   ? t('builder.empty.tryChange')
                                   : t('builder.empty.pressAdd')
                                 }
                               </div>
                               {(searchQuery || statusFilter !== "all") && (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
+                                <Button
+                                  variant="outline"
+                                  size="sm"
                                   onClick={clearFilters}
                                   className="mt-2"
                                 >
@@ -880,7 +881,7 @@ export default function VocabTableBuilder() {
                   </tbody>
                 </table>
               </div>
-              
+
               {/* Load more button */}
               {hasNextPage && allWords.length > 0 && (
                 <div className="flex justify-center py-6 border-t bg-muted/10">
@@ -905,7 +906,7 @@ export default function VocabTableBuilder() {
                   </Button>
                 </div>
               )}
-              
+
               {/* Bottom statistics */}
               {allWords.length > 0 && (
                 <div className="px-4 py-3 text-center text-sm text-muted-foreground bg-muted/5 border-t flex justify-between items-center">
@@ -915,7 +916,7 @@ export default function VocabTableBuilder() {
                       <span className="text-primary">{t('builder.moreData')}</span>
                     )}
                   </div>
-                  
+
                   {(searchQuery || statusFilter !== "all") && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs">{t('builder.activeFilters')}</span>

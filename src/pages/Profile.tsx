@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { User, Mail, Lock, Calendar, LogOut, Edit3, Loader2 } from "lucide-react";
-import { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import AppLayout from "@/components/app/AppLayout";
 import { useTranslation } from "react-i18next";
 
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import type { User as UserType } from "../lib/types";
-import { getUserProfile, updateUserProfile, changeUserPassword, logout } from "../lib/api";
+import { getUserProfile, updateUserProfile, changeUserPassword, errorMessage } from "../lib/api";
 
 interface ProfileUser extends UserType {
   name?: string;
@@ -20,6 +21,9 @@ interface ProfileUser extends UserType {
 
 export default function Profile() {
   const { t, i18n } = useTranslation();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [loggingOut, setLoggingOut] = useState(false);
   const [user, setUser] = useState<ProfileUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,11 +44,7 @@ export default function Profile() {
     confirmPassword: ""
   });
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -57,13 +57,14 @@ export default function Profile() {
         email: userData.email || ""
       }));
     } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
-      const msg = axiosError.response?.data?.message || axiosError.message || t("auth.profile.errors.load");
-      setError(msg);
+      setError(errorMessage(err, t("auth.profile.errors.load")));
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
+
+  useEffect(() => { void loadProfile(); }, [loadProfile]);
+
 
   const handleSaveName = async () => {
     if (!formData.name.trim()) {
@@ -77,8 +78,7 @@ export default function Profile() {
       setUser(response.data as ProfileUser);
       setIsEditingName(false);
     } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.response?.data?.message || axiosError.message || t("auth.profile.errors.saveName"));
+      setError(errorMessage(err, t("auth.profile.errors.saveName")));
     } finally {
       setSavingName(false);
     }
@@ -101,8 +101,7 @@ export default function Profile() {
       setUser(response.data as ProfileUser);
       setIsEditingEmail(false);
     } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.response?.data?.message || axiosError.message || t("auth.profile.errors.saveEmail"));
+      setError(errorMessage(err, t("auth.profile.errors.saveEmail")));
     } finally {
       setSavingEmail(false);
     }
@@ -132,38 +131,33 @@ export default function Profile() {
       setFormData(prev => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
       alert(response.data?.message || t("auth.profile.success.passwordChanged"));
     } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.response?.data?.message || axiosError.message || t("auth.profile.errors.savePassword"));
+      setError(errorMessage(err, t("auth.profile.errors.savePassword")));
     } finally {
       setSavingPassword(false);
     }
   };
 
   const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       await logout();
+      navigate('/login', { replace: true });
     } catch (err) {
-      console.error("Logout error", err);
-    } finally {
-      window.location.href = "/login";
-    }
+      setError(errorMessage(err, t('auth.profile.errors.logout')));
+    } finally { setLoggingOut(false); }
   };
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return t("auth.profile.fields.notProvided") as string;
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return t("auth.profile.fields.notProvided");
     const fmt = new Intl.DateTimeFormat(i18n.language || "en", {
       year: "numeric",
       month: "long",
       day: "numeric"
     });
     return fmt.format(date);
-  };
-
-  const getLastLoginText = () => {
-    const now = new Date();
-    const time = now.toLocaleTimeString(i18n.language || "en", { hour: "2-digit", minute: "2-digit" });
-    return t("auth.profile.todayAt", { time });
   };
 
   if (loading) {
@@ -389,10 +383,7 @@ export default function Profile() {
                 <span className="text-sm text-muted-foreground">{t("auth.profile.labels.registeredAt")}</span>
                 <Badge variant="secondary">{formatDate(user?.createdAt)}</Badge>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">{t("auth.profile.labels.lastLogin")}</span>
-                <span className="text-sm text-foreground">{getLastLoginText()}</span>
-              </div>
+
             </CardContent>
           </Card>
 
@@ -404,7 +395,7 @@ export default function Profile() {
                   <h3 className="font-medium text-foreground">{t("auth.profile.logout.title")}</h3>
                   <p className="text-sm text-muted-foreground">{t("auth.profile.logout.subtitle")}</p>
                 </div>
-                <Button onClick={handleLogout} variant="destructive" className="flex items-center gap-2">
+                <Button disabled={loggingOut} onClick={handleLogout} variant="destructive" className="flex items-center gap-2">
                   <LogOut className="h-4 w-4" />
                   {t("auth.profile.logout.button")}
                 </Button>

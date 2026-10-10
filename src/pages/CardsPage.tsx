@@ -6,10 +6,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { WordStatus } from "@/components/vocab/VocabTableBuilder";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { countWords, getCardSettings, getWordSets, updateCardSettings } from "../lib/api";
+import { countWords, errorMessage, getCardSettings, getWordSets, updateCardSettings } from "../lib/api";
 import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 
 
 interface ColumnDto { key: string; name: string; labelKey?: string }
@@ -40,268 +41,150 @@ export default function CardsSetup() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+
   const [settings, setSettings] = useState<CardSettingsState>({
-    frontKey: "",
-    backKey: "",
-    hintKey: "none",
-    selectedStatuses: ["all"],
-    selectedTables: ["all"],
+    frontKey: "original", backKey: "translation", hintKey: "none",
+    selectedStatuses: ["all"], selectedTables: ["all"],
   });
-  const [userColumns, setUserColumns] = useState<Array<{ key: string; name: string }>>([]);
+  const [savedSettings, setSavedSettings] = useState<CardSettingsState | null>(null);
+  const [userColumns, setUserColumns] = useState<ColumnDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [initialError, setInitialError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [filteredCount, setFilteredCount] = useState(0);
   const [countLoading, setCountLoading] = useState(false);
+  const [countError, setCountError] = useState(false);
+  const [countAttempt, setCountAttempt] = useState(0);
+  const latest = useRef(settings);
+  latest.current = settings;
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+  const isSaving = dirty || writing;
 
-  const { data: wordSets, isLoading: wordSetsLoading } = useQuery({
-    queryKey: ["wordSets"],
-    queryFn: getWordSets,
+  const { data: wordSets, isLoading: wordSetsLoading, isError: wordSetsError, refetch: reloadSets } = useQuery({
+    queryKey: ["wordSets"], queryFn: getWordSets,
   });
+  const availableColumns = useMemo(() => [
+    { key: "original", name: t("cards.setup.columns.original") },
+    { key: "translation", name: t("cards.setup.columns.translation") },
+    ...userColumns.filter(c => !["word", "original", "translation"].includes(c.key)),
+  ], [userColumns, t]);
 
-  const availableColumns = useMemo(() => {
-    const base: ColumnDto[] =
-      userColumns.length > 0
-        ? userColumns
-        : [
-            { key: "original", name: "Original", labelKey: "cards.setup.columns.original" },
-            { key: "translation", name: "Translation", labelKey: "cards.setup.columns.translation" },
-          ];
-
-    return base.map((c) => ({ ...c, name: c.labelKey ? (t(c.labelKey) as string) : c.name }));
-  }, [userColumns, t]);
-
-  const processApiResponse = useCallback((data: CardSettingsResponse) => {
-    const columnsFromApi =
-      data.userColumns && data.userColumns.length > 0
-        ? data.userColumns
-        : [
-            { key: "original", name: t("cards.setup.columns.original") as string },
-            { key: "translation", name: t("cards.setup.columns.translation") as string },
-          ];
-
-    const isHintValid = data.hintKey && columnsFromApi.some((c) => c.key === data.hintKey);
-    const newHintKey = isHintValid ? (data.hintKey as string) : "none";
-
-    setUserColumns(columnsFromApi);
-    setSettings({
-      frontKey: data.frontKey || "original",
-      backKey: data.backKey || "translation",
-      hintKey: newHintKey,
-      selectedStatuses: data.selectedStatuses || ["all"],
-      selectedTables: data.selectedTables || ["all"],
-    });
-  }, [t]);
-
-  const loadColumnsForTables = useCallback(async (selectedTables: string[]) => {
-    setIsSaving(true);
-    try {
-      const response = await updateCardSettings({
-        selectedTables,
-        hintKey: null,
-      });
-      processApiResponse(response.data.data);
-    } catch (error) {
-      console.error("Load columns error:", error);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [processApiResponse]);
-
-  const selectedStatusesSet = useMemo(
-    () => new Set(settings.selectedStatuses as (WordStatus | "all")[]),
-    [settings.selectedStatuses]
-  );
-
-  const selectedTablesSet = useMemo(() => {
-    const newSet = new Set<string | number>();
-    settings.selectedTables.forEach((item) => {
-      if (item === "all") {
-        newSet.add("all");
-      } else {
-        const numId = parseInt(item, 10);
-        if (!isNaN(numId)) newSet.add(numId);
-      }
-    });
-    return newSet;
-  }, [settings.selectedTables]);
+  const parseSettings = useCallback((data: CardSettingsResponse): CardSettingsState => ({
+    frontKey: data.frontKey === "word" ? "original" : data.frontKey || "original",
+    backKey: data.backKey === "word" ? "original" : data.backKey || "translation",
+    hintKey: data.hintKey || "none",
+    selectedStatuses: data.selectedStatuses ?? ["all"],
+    selectedTables: data.selectedTables ?? ["all"],
+  }), []);
 
   useEffect(() => {
-    const loadInitialSettings = async () => {
-      setIsLoading(true);
-      try {
-        const response = await getCardSettings();
-        processApiResponse(response.data.data);
-      } catch (error) {
-        console.error("Initial settings error:", error);
-      } finally {
-        setIsLoading(false);
+    const controller = new AbortController();
+    setIsLoading(true);
+    getCardSettings(controller.signal).then(response => {
+      if (controller.signal.aborted) return;
+      const data: CardSettingsResponse = response.data.data;
+      const loaded = parseSettings(data);
+      setUserColumns(data.userColumns ?? []);
+      setSettings(loaded);
+      setSavedSettings(loaded);
+      setInitialError(false);
+      setError(null);
+    }).catch(err => {
+      if (!controller.signal.aborted) {
+        setInitialError(true);
+        setError(errorMessage(err, i18n.t('cards.setup.loadError')));
       }
-    };
+    }).finally(() => { if (!controller.signal.aborted) setIsLoading(false); });
+    return () => controller.abort();
+  }, [attempt, parseSettings]);
 
-    loadInitialSettings();
-  }, [processApiResponse]);
-
-  const saveSettings = useCallback(
-    async (partialSettings: Partial<CardSettingsState>) => {
-      setIsSaving(true);
-      try {
-        const fullSettings = {
-          ...settings,
-          ...partialSettings,
-          hintKey:
-            partialSettings.hintKey === "none"
-              ? null
-              : partialSettings.hintKey ?? (settings.hintKey === "none" ? null : settings.hintKey),
-        };
-
-        const response = await updateCardSettings(fullSettings);
-
-        if (response.data.data.userColumns) {
-          processApiResponse(response.data.data);
-        }
-      } catch (error) {
-        console.error("Save settings error:", error);
-      } finally {
-        setIsSaving(false);
+  const persist = useCallback(async (snapshot: CardSettingsState) => {
+    setWriting(true);
+    try {
+      const response = await updateCardSettings({ ...snapshot, hintKey: snapshot.hintKey === "none" ? null : snapshot.hintKey });
+      if (!mounted.current) return;
+      const data: CardSettingsResponse = response.data.data;
+      const saved = parseSettings(data);
+      setSavedSettings(saved);
+      if (JSON.stringify(latest.current) === JSON.stringify(snapshot)) {
+        setSettings(saved);
+        setUserColumns(data.userColumns ?? []);
       }
-    },
-    [processApiResponse, settings]
-  );
+      setError(null);
+    } catch (err) {
+      if (mounted.current) setError(errorMessage(err, i18n.t('cards.setup.saveError')));
+    } finally {
+      if (mounted.current) setWriting(false);
+    }
+  }, [parseSettings]);
 
-  const debouncedSave = useMemo(() => {
-    let timeoutId: NodeJS.Timeout;
-    return (newSettings: Partial<CardSettingsState>) => {
-      clearTimeout(timeoutId);
-      setIsSaving(true);
-      timeoutId = setTimeout(() => {
-        saveSettings(newSettings);
-      }, 800);
-    };
-  }, [saveSettings]);
+  useEffect(() => {
+    if (isLoading || initialError || writing || error || !dirty) return;
+    const timer = setTimeout(() => { void persist(settings); }, 800);
+    return () => clearTimeout(timer);
+  }, [settings, dirty, writing, error, isLoading, initialError, persist]);
 
   const updateSetting = <K extends keyof CardSettingsState>(key: K, value: CardSettingsState[K]) => {
-    setSettings((prev) => {
-      const updated = { ...prev, [key]: value };
-      debouncedSave(updated);
-      return updated;
-    });
+    setError(null);
+    setSettings(prev => ({ ...prev, [key]: value }));
   };
+  const selectedStatusesSet = useMemo(() => new Set(settings.selectedStatuses), [settings.selectedStatuses]);
+  const selectedTablesSet = useMemo(() => new Set(settings.selectedTables.map(id => id === "all" ? "all" : Number(id))), [settings.selectedTables]);
 
   const handleStatusToggle = (status: WordStatus | "all") => {
-    let newStatuses: string[];
-    const currentStatuses = [...settings.selectedStatuses];
-
-    if (status === "all") {
-      newStatuses = currentStatuses.includes("all") ? [] : ["all"];
-    } else {
-      const filteredStatuses = currentStatuses.filter((s) => s !== "all");
-      if (filteredStatuses.includes(status)) {
-        newStatuses = filteredStatuses.filter((s) => s !== status);
-      } else {
-        newStatuses = [...filteredStatuses, status];
-      }
-    }
-
-    if (newStatuses.length === 0 && status !== "all") {
-      newStatuses = ["all"];
-    }
-
-    updateSetting("selectedStatuses", newStatuses);
+    const current = settings.selectedStatuses;
+    const next = status === "all" ? (current.includes("all") ? [] : ["all"])
+      : current.includes(status) ? current.filter(s => s !== status && s !== "all") : [...current.filter(s => s !== "all"), status];
+    updateSetting("selectedStatuses", next);
   };
-
-  const handleTableToggle = (tableId: number | "all") => {
-    let newTables: string[];
-    const currentTables = [...settings.selectedTables];
-
-    if (tableId === "all") {
-      newTables = currentTables.includes("all") ? [] : ["all"];
-    } else {
-      const filteredTables = currentTables.filter((t) => t !== "all");
-      const tableIdStr = tableId.toString();
-      if (filteredTables.includes(tableIdStr)) {
-        newTables = filteredTables.filter((t) => t !== tableIdStr);
-      } else {
-        newTables = [...filteredTables, tableIdStr];
-      }
-    }
-
-    if (newTables.length === 0 && tableId !== "all") {
-      newTables = ["all"];
-    }
-
-    setSettings((prev) => ({
-      ...prev,
-      selectedTables: newTables,
-      hintKey: "none",
-    }));
-
-    loadColumnsForTables(newTables);
+  const handleTableToggle = (id: number | "all") => {
+    const current = settings.selectedTables;
+    const value = String(id);
+    const next = id === "all" ? (current.includes("all") ? [] : ["all"])
+      : current.includes(value) ? current.filter(s => s !== value && s !== "all") : [...current.filter(s => s !== "all"), value];
+    setError(null);
+    setSettings(prev => ({ ...prev, selectedTables: next, hintKey: "none" }));
   };
-
-  const getStatusDisplayText = () => {
-    if (selectedStatusesSet.has("all")) return t("cards.setup.statuses.all");
-    const statusLabels = Array.from(selectedStatusesSet).map((status) => {
-      switch (status) {
-        case "NEW":
-          return t("cards.setup.statuses.new");
-        case "LEARNING":
-          return t("cards.setup.statuses.learning");
-        case "LEARNED":
-          return t("cards.setup.statuses.learned");
-        default:
-          return status as string;
-      }
-    });
-    return statusLabels.join(", ") || (t("cards.setup.statuses.choose") as string);
-  };
-
-  const getTablesDisplayText = () => {
-    if (settings.selectedTables.includes("all")) return t("cards.setup.tables.all");
-    if (wordSetsLoading || !wordSets) return t("cards.setup.tables.loading");
-
-    const selectedTableIds = settings.selectedTables.map((id) => parseInt(id, 10));
-    const tableLabels = selectedTableIds
-      .map((id) => wordSets.find((set: WordSet) => set.id === id)?.title)
-      .filter(Boolean) as string[];
-
-    return tableLabels.length > 0 ? tableLabels.join(", ") : (t("cards.setup.tables.choose") as string);
-  };
+  const getStatusDisplayText = () => settings.selectedStatuses.includes("all") ? t("cards.setup.statuses.all")
+    : settings.selectedStatuses.map(status => t("cards.setup.statuses." + status.toLowerCase())).join(", ") || t("cards.setup.statuses.choose");
+  const getTablesDisplayText = () => settings.selectedTables.includes("all") ? t("cards.setup.tables.all")
+    : wordSetsLoading ? t("cards.setup.tables.loading")
+    : wordSets?.filter(set => settings.selectedTables.includes(String(set.id))).map(set => set.title).join(", ") || t("cards.setup.tables.choose");
 
   const start = () => {
+    if (dirty || writing || error || initialError || countError) return;
     const params = new URLSearchParams({
-      front: settings.frontKey,
-      back: settings.backKey,
-      hint: settings.hintKey === "none" ? "" : settings.hintKey,
-      status: settings.selectedStatuses.join(","),
-      tables: settings.selectedTables.join(","),
+      front: settings.frontKey, back: settings.backKey, hint: settings.hintKey,
+      status: settings.selectedStatuses.join(","), tables: settings.selectedTables.join(","),
     });
-    navigate(`/train?${params.toString()}`);
+    navigate("/train?" + params.toString());
   };
 
   useEffect(() => {
-    if (!settings.frontKey || !settings.backKey || isLoading) {
+    const controller = new AbortController();
+    if (isLoading || initialError || !settings.selectedStatuses.length || !settings.selectedTables.length) {
       setFilteredCount(0);
-      return;
+      setCountLoading(false);
+      return () => controller.abort();
     }
-
     setCountLoading(true);
-    const timeout = setTimeout(async () => {
+    setCountError(false);
+    const timer = setTimeout(async () => {
       try {
-        const response = await countWords({
-          ...settings,
-          hintKey: settings.hintKey === "none" ? null : settings.hintKey,
-        });
-        setFilteredCount(response.data.data.count);
-      } catch (error) {
-        console.error("Count error:", error);
-        setFilteredCount(0);
+        const response = await countWords({ ...settings, hintKey: settings.hintKey === "none" ? null : settings.hintKey }, controller.signal);
+        if (!controller.signal.aborted) setFilteredCount(response.data.data.count);
+      } catch {
+        if (!controller.signal.aborted) { setCountError(true); setFilteredCount(0); }
       } finally {
-        setCountLoading(false);
+        if (!controller.signal.aborted) setCountLoading(false);
       }
     }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [settings, isLoading]);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [settings, isLoading, initialError, countAttempt]);
 
   if (isLoading) {
     return (
@@ -328,6 +211,10 @@ export default function CardsSetup() {
   return (
     <AppLayout>
       <div className="w-full px-4 md:px-6 lg:px-10 py-8 md:py-12">
+        {error && <div role="alert" className="mb-4 text-destructive"><p>{error}</p><Button variant="outline" disabled={writing} onClick={() => { setError(null); if (initialError) setAttempt(a => a + 1); }}>{t('auth.profile.retry')}</Button></div>}
+        {countError && <div role="alert" className="mb-4 text-destructive"><p>{t('cards.setup.countError')}</p><Button variant="outline" onClick={() => setCountAttempt(a => a + 1)}>{t('auth.profile.retry')}</Button></div>}
+        {wordSetsError && <div role="alert"><p>{t('cards.setup.tablesError')}</p><Button onClick={() => reloadSets()}>{t('auth.profile.retry')}</Button></div>}
+
         <div className="flex items-center gap-2 mb-6">
           <h1 className="text-3xl md:text-4xl font-bold">{t("cards.setup.title")}</h1>
           {(isSaving || countLoading) && (
@@ -504,7 +391,7 @@ export default function CardsSetup() {
             variant="hero"
             size="lg"
             onClick={start}
-            disabled={filteredCount === 0 || isSaving || countLoading}
+            disabled={filteredCount === 0 || isSaving || countLoading || !!error || countError || initialError}
           >
             {t("cards.setup.button.start")}
           </Button>

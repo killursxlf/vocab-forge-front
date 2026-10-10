@@ -1,13 +1,29 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import axios from 'axios';
-import { User } from './types';
-const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-import { WordSetPage } from './types';
+import type { User, Word, WordSet, WordSetPage } from './types';
+import { resolveApiUrl } from './apiUrl';
+export const API_BASE_URL = resolveApiUrl(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD);
 
 const api = axios.create({
-  baseURL: apiUrl,
+  baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 15_000,
 });
+
+api.interceptors.response.use(response => response, error => {
+  if (axios.isAxiosError(error) && error.response?.status === 401 &&
+      !['/auth/login', '/auth/profile', '/users/register'].includes(error.config?.url ?? '')) {
+    window.dispatchEvent(new Event('auth-expired'));
+  }
+  return Promise.reject(error);
+});
+
+export function errorMessage(error: unknown, fallback: string): string {
+  if (!axios.isAxiosError(error)) return fallback;
+  const message: unknown = error.response?.data?.message;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message) && message.every(item => typeof item === 'string')) return message.join(', ');
+  return fallback;
+}
 
 interface LoginData {
   email: string;
@@ -42,17 +58,22 @@ export const login = (data: LoginData) => {
 
 export const logout = () => api.post('/auth/logout');
 
-export const getProfile = () => api.get<User>('/auth/profile');
+export const getProfile = async (signal?: AbortSignal) => {
+  const response = await api.get<{ id?: number; userId?: number; email: string }>('/auth/profile', { signal });
+  const id = response.data.id ?? response.data.userId;
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid user profile');
+  return { ...response, data: { id, email: response.data.email } as User };
+};
 
 export const register = (data: RegisterData) => api.post('/users/register', data);
 
 export const getWordSets = async () => {
-  const { data } = await api.get('/word-sets');
+  const { data } = await api.get<WordSet[]>('/word-sets');
   return data;
 };
 
-export const createWordSet = async (newSetData: any) => {
-  const { data } = await api.post('/word-sets', newSetData);
+export const createWordSet = async (newSetData: Pick<WordSet, 'title' | 'customColumns'>) => {
+  const { data } = await api.post<WordSet>('/word-sets', newSetData);
   return data;
 };
 
@@ -61,23 +82,23 @@ export const deleteWordSet = async (setId: number) => {
   return data;
 };
 
-export const updateWordSet = async ({ setId, updatedData }: { setId: number, updatedData: any }) => {
+export const updateWordSet = async ({ setId, updatedData }: { setId: number, updatedData: Partial<Pick<WordSet, 'title' | 'customColumns'>> }) => {
   const { data } = await api.patch(`/word-sets/${setId}`, updatedData);
   return data;
 };
 
-export const addWordToSet = async ({ setId, newWordData }: { setId: number, newWordData: any }) => {
-  const { data } = await api.post(`/word-sets/${setId}/words`, newWordData);
+export const addWordToSet = async ({ setId, newWordData }: { setId: number, newWordData: Omit<Word, 'id' | 'createdAt'> }) => {
+  const { data } = await api.post<Word>(`/word-sets/${setId}/words`, newWordData);
   return data;
 };
 
-export const updateWord = async ({ wordId, updatedData }: { wordId: number, updatedData: any }) => {
-  const { data } = await api.patch(`/words/${wordId}`, updatedData);
+export const updateWord = async ({ wordId, updatedData }: { wordId: number, updatedData: Partial<Omit<Word, 'id' | 'createdAt'>> }) => {
+  const { data } = await api.patch<Word>(`/words/${wordId}`, updatedData);
   return data;
 };
 
-export const submitAnswer = async (wordId: number, knows: boolean) => {
-  const { data } = await api.post(`/words/${wordId}/answer`, { knows });
+export const submitAnswer = async (wordId: number, knows: boolean, answerId: string, signal?: AbortSignal) => {
+  const { data } = await api.post(`/words/${wordId}/answer`, { knows, answerId }, { signal });
   return data;
 };
 
@@ -88,45 +109,25 @@ export const deleteWord = async (wordId: number) => {
 
 
 export const getWordSetById = async (id: number, queryString: string): Promise<WordSetPage> => {
-  try {
-    const url = `/word-sets/${id}?${queryString}`;
-    console.log('🌐 API Request:', url);
-
-    const response = await api.get(url);
-    
-    console.log('📦 Response data:', response.data);
-    const data = response.data;
-    
-    const result: WordSetPage = {
-      id: data.id,
-      title: data.title,
-      customColumns: data.customColumns || [],
-      words: data.words || [],
-      hasMore: data.hasMore || false,
-      total: data.total || 0,
-    };
-    
-    console.log('✅ Processed result:', result);
-    return result;
-    
-  } catch (error) {
-    console.error('❌ API Error:', error);
-    throw error;
-  }
+  const { data } = await api.get<WordSetPage>('/word-sets/' + id + '?' + queryString);
+  return {
+    id: data.id, title: data.title, customColumns: data.customColumns ?? [],
+    words: data.words ?? [], hasMore: data.hasMore ?? false, total: data.total ?? 0,
+  };
 };
 
-export const countWords = (filters: CountWordsFilters) => {
-  return api.post<{ data: { count: number } }>('/card-settings/count', filters);
+export const countWords = (filters: CountWordsFilters, signal?: AbortSignal) => {
+  return api.post<{ data: { count: number } }>('/card-settings/count', filters, { signal });
 };
 
-export const getTrainingCards = async () => {
-  const { data } = await api.get('/card-settings/cards');
+export const getTrainingCards = async (signal?: AbortSignal) => {
+  const { data } = await api.get<Word[]>('/card-settings/cards', { signal });
   return data;
 };
 
-export const getCardSettings = () => api.get('/card-settings');
+export const getCardSettings = (signal?: AbortSignal) => api.get('/card-settings', { signal });
 
-export const updateCardSettings = (settingsData: any) => api.put('/card-settings', settingsData);
+export const updateCardSettings = (settingsData: CountWordsFilters) => api.put('/card-settings', settingsData);
 
 export const getUserProfile = () => {
   return api.get<User>('/users/me');
