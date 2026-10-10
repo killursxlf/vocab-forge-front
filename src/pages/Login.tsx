@@ -4,10 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "react-i18next";
+import { useGoogleAuth } from "@/hooks/useGoogleAuth";
+import { errorMessage } from "@/lib/api";
 
 export default function Login() {
   const { t } = useTranslation();
@@ -18,93 +20,31 @@ export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const popupRef = useRef<Window | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const google = useGoogleAuth();
+  const [submitting, setSubmitting] = useState(false);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await login(email, password);
       navigate("/app");
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-          t("auth.login.errors.invalidCreds")
-      );
-    }
+    } catch (err) {
+      setError(errorMessage(err, t("auth.login.errors.invalidCreds")));
+    } finally { setSubmitting(false); }
   };
-
-  const cleanupGoogleLogin = () => {
-    if (timerRef.current) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    popupRef.current = null;
-  };
-
-  const handleGoogleLogin = () => {
-    const API_URL = import.meta.env.VITE_API_BASE_URL;
-    const width = 500;
-    const height = 600;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-
-    cleanupGoogleLogin();
-    setError("");
-
-    popupRef.current = window.open(
-      `${API_URL}/auth/google?t=${Date.now()}`,
-      "GoogleLogin",
-      `width=${width},height=${height},top=${top},left=${left}`
-    );
-
-    // Safety timeout in case the popup never responds
-    timerRef.current = window.setTimeout(() => {
-      if (popupRef.current && !popupRef.current.closed) {
-        popupRef.current.close();
-      }
-      cleanupGoogleLogin();
-      setError(t("auth.login.errors.googleTimeout"));
-    }, 30000);
-  };
-
-  useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_BASE_URL;
-
-    const listener = (event: MessageEvent) => {
-      try {
-        const apiUrl = new URL(API_URL);
-        if (event.origin !== apiUrl.origin) return;
-
-        if (event.data === "google-auth-success") {
-          cleanupGoogleLogin();
-          window.location.href = "/app";
-        } else if (event.data === "google-auth-error") {
-          cleanupGoogleLogin();
-          setError(t("auth.login.errors.googleError"));
-        }
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    window.addEventListener("message", listener);
-    return () => {
-      window.removeEventListener("message", listener);
-      cleanupGoogleLogin();
-    };
-  }, [t]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
 
       <div className="w-full max-w-md space-y-6" aria-live="polite">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-bold bg-linear-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             {t("auth.common.appName")}
           </h1>
           <p className="text-muted-foreground">{t("auth.login.pageTitle")}</p>
@@ -124,7 +64,8 @@ export default function Login() {
             <Button
               variant="outline"
               className="w-full h-11 bg-white dark:bg-white text-black hover:bg-gray-50 dark:hover:bg-gray-100 border-gray-300"
-              onClick={handleGoogleLogin}
+              disabled={submitting || google.pending}
+              onClick={() => { setError(""); google.start(); }}
               aria-label={t("auth.login.google")}
             >
               {/* Google logo */}
@@ -148,6 +89,7 @@ export default function Login() {
               </div>
             </div>
 
+            {google.pending && <Button variant="outline" onClick={google.cancel}>{t("auth.common.cancelGoogle")}</Button>}
             <form onSubmit={handleEmailLogin} className="space-y-4">
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -192,29 +134,13 @@ export default function Login() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      id="remember"
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-border"
-                    />
-                    <Label htmlFor="remember" className="text-sm font-normal">
-                      {t("auth.login.rememberMe")}
-                    </Label>
-                  </div>
-                  <Link to="#" className="text-sm text-primary hover:underline">
-                    {t("auth.login.forgot")}
-                  </Link>
-                </div>
-
-                {error && (
+                {(error || google.error) && (
                   <p className="text-sm text-center text-red-500" role="alert">
-                    {error}
+                    {error || google.error}
                   </p>
                 )}
 
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full" disabled={submitting || google.pending}>
                   {t("auth.login.submit")}
                 </Button>
               </div>

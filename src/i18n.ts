@@ -25,4 +25,8 @@ i18n
     cleanCode: true,
   });
 
+const updateLanguage = () => { document.documentElement.lang = i18n.resolvedLanguage || 'en'; };
+i18n.on('languageChanged', updateLanguage);
+updateLanguage();
+
 export default i18n;

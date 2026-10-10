@@ -1,6 +1,9 @@
 import AppLayout from "@/components/app/AppLayout";
 import { Button } from "@/components/ui/button";
-import { getTrainingCards, submitAnswer } from "@/lib/api";
+import { getTrainingCards } from "@/lib/api";
+import { getCardValue } from '@/lib/cards';
+import { useAnswerSync, AnswerSyncStatus } from '@/contexts/AnswerSyncContext';
+import i18n from '@/i18n';
 import { Lightbulb } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -26,7 +29,7 @@ export default function Training() {
 
   const frontKey = q.get("front") || "original";
   const backKey = q.get("back") || "translation";
-  const hintKey = q.get("hint");
+  const hintKey = q.get("hint") || "none";
   const statusParam = q.get("status") || "all";
   const tablesParam = q.get("tables") || "";
 
@@ -36,94 +39,57 @@ export default function Training() {
   const [known, setKnown] = useState(0);
   const [unknown, setUnknown] = useState(0);
 
-  const [realFrontKey, setRealFrontKey] = useState<string | null>(null);
-  const [realBackKey, setRealBackKey] = useState<string | null>(null);
-  const [realHintKey, setRealHintKey] = useState<string | null>(null);
 
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const { enqueue } = useAnswerSync();
+  const answered = useRef(new Set<number>());
+  const lockedUntil = useRef(0);
   const currentCard = deck[index];
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
-    getTrainingCards()
+    setLoadError(false);
+    getTrainingCards(controller.signal)
       .then((cards) => {
-        const shuffledData = cards?.sort(() => Math.random() - 0.5) || [];
-        setDeck(shuffledData);
-
-        const findRealKey = (obj: Record<string, unknown> | null, keyToFind: string): string | null => {
-          if (!obj || !keyToFind || keyToFind === "none") return null;
-          const lowerKey = keyToFind.toLowerCase();
-
-          const mainKey = Object.keys(obj).find((k) => k.toLowerCase() === lowerKey);
-          if (mainKey) return mainKey;
-
-          const cf = (obj as TrainingCard).customFields;
-          if (cf && typeof cf === "object") {
-            const customKey = Object.keys(cf).find((k) => k.toLowerCase() === lowerKey);
-            if (customKey) return customKey;
-          }
-          return null;
-        };
-
-        if (shuffledData.length > 0) {
-          const firstCard = shuffledData[0];
-
-          setRealFrontKey(findRealKey(firstCard as Record<string, unknown>, frontKey));
-          setRealBackKey(findRealKey(firstCard as Record<string, unknown>, backKey));
-
-          let dynamicHintKey: string | null = null;
-          if (hintKey !== "none" && firstCard.customFields) {
-            const customKeys = Object.keys(firstCard.customFields);
-            if (customKeys.length > 0) {
-              dynamicHintKey = customKeys[0];
-            }
-          }
-          setRealHintKey(dynamicHintKey);
-        } else {
-          setRealFrontKey(null);
-          setRealBackKey(null);
-          setRealHintKey(null);
+        if (controller.signal.aborted) return;
+        const shuffled = [...cards];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
         }
-
+        setDeck(shuffled.map(card => ({ ...card })));
         setIndex(0);
         setKnown(0);
         setUnknown(0);
+        answered.current.clear();
       })
-      .catch((err) => {
-        console.error("Failed to load training cards:", err);
-        toast.error(t("cards.training.toast.loadError"));
-        setDeck([]);
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setLoadError(true);
+        toast.error(i18n.t("cards.training.toast.loadError"));
       })
-      .finally(() => setLoading(false));
-  }, [frontKey, backKey, hintKey, statusParam, tablesParam, t]);
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [frontKey, backKey, hintKey, statusParam, tablesParam, attempt]);
 
-  const nextCard = () => setIndex((i) => i + 1);
-
-  const getCardValue = (card: TrainingCard | null, key: string | null | undefined): string => {
-    if (!card || !key || key === "none") return "—";
-    const direct = card[key];
-    if (direct !== undefined && direct !== null) return String(direct);
-    if (card.customFields && key in card.customFields) {
-      const value = card.customFields[key];
-      if (value !== undefined && value !== null) return String(value);
+  const answer = (knows: boolean) => {
+    if (!currentCard || answered.current.has(currentCard.id) || Date.now() < lockedUntil.current) return;
+    try {
+      enqueue(currentCard.id, knows);
+    } catch {
+      toast.error(t('sync.storageError'));
+      return;
     }
-    return "—";
+    answered.current.add(currentCard.id);
+    lockedUntil.current = Date.now() + 250;
+    if (knows) setKnown(k => k + 1);
+    else setUnknown(u => u + 1);
+    setIndex(i => i + 1);
   };
-
-  const onKnow = () => {
-    if (!currentCard) return;
-    setKnown((k) => k + 1);
-    toast.success(t("cards.training.toast.know", { text: getCardValue(currentCard, realFrontKey) }));
-    submitAnswer(currentCard.id, true).catch(() => toast.error(t("cards.training.toast.submitError")));
-    nextCard();
-  };
-
-  const onDontKnow = () => {
-    if (!currentCard) return;
-    setUnknown((u) => u + 1);
-    toast.info(t("cards.training.toast.dontKnow", { text: getCardValue(currentCard, realFrontKey) }));
-    submitAnswer(currentCard.id, false).catch(() => toast.error(t("cards.training.toast.submitError")));
-    nextCard();
-  };
+  const onKnow = () => answer(true);
+  const onDontKnow = () => answer(false);
 
   if (loading) {
     return (
@@ -135,13 +101,15 @@ export default function Training() {
     );
   }
 
+  if (loadError) return <AppLayout><div className="p-8" role="alert"><p>{t('cards.training.toast.loadError')}</p><Button onClick={() => setAttempt(a => a + 1)}>{t('auth.profile.retry')}</Button></div></AppLayout>;
+
   if (!deck.length) {
     return (
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10 text-center">
           <h1 className="text-2xl font-bold mb-4">{t("cards.training.empty.title")}</h1>
           <p className="text-muted-foreground mb-6">{t("cards.training.empty.subtitle")}</p>
-          <Button onClick={() => navigate(-1)}>{t("cards.training.empty.backBtn")}</Button>
+          <Button onClick={() => navigate("/cards")}>{t("cards.training.empty.backBtn")}</Button>
         </div>
       </AppLayout>
     );
@@ -152,6 +120,7 @@ export default function Training() {
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10">
           <h1 className="text-3xl font-bold mb-4">{t("cards.training.results.title")}</h1>
+          <AnswerSyncStatus showSaved />
           <div className="text-muted-foreground mb-6">
             {t("cards.training.results.total", { count: deck.length })}
           </div>
@@ -166,7 +135,7 @@ export default function Training() {
             </div>
           </div>
           <div className="mt-8 flex gap-3">
-            <Button variant="soft" onClick={() => navigate(-1)}>
+            <Button variant="soft" onClick={() => navigate("/cards")}>
               {t("cards.training.results.backBtn")}
             </Button>
             <Button variant="hero" onClick={() => window.location.reload()}>
@@ -188,11 +157,11 @@ export default function Training() {
 
         <SwipeCard
           card={currentCard}
-          frontKey={realFrontKey}
-          backKey={realBackKey}
-          hintKey={realHintKey}
-          onSwipeLeft={onDontKnow}
-          onSwipeRight={onKnow}
+          frontKey={frontKey}
+          backKey={backKey}
+          hintKey={hintKey}
+          onSwipeLeft={onKnow}
+          onSwipeRight={onDontKnow}
           getCardValue={getCardValue}
           t={t}
         />
@@ -247,6 +216,7 @@ function SwipeCard({
   const [showHint, setShowHint] = useState(false);
   const [dx, setDx] = useState(0);
   const startX = useRef<number | null>(null);
+  const suppressClick = useRef(false);
 
   useEffect(() => {
     setShowBack(false);
@@ -258,6 +228,8 @@ function SwipeCard({
     if ((e.target as HTMLElement).closest("button")) {
       return;
     }
+    if (!e.isPrimary || e.button !== 0) return;
+    suppressClick.current = false;
     startX.current = e.clientX;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -265,13 +237,14 @@ function SwipeCard({
     if (startX.current === null) return;
     setDx(e.clientX - startX.current);
   };
-  const onPointerUp = () => {
+  const resetPointer = () => { setDx(0); startX.current = null; };
+  const onPointerUp = (e: React.PointerEvent) => {
     if (startX.current === null) return;
-    const threshold = 80;
-    if (dx < -threshold) onSwipeLeft();
-    else if (dx > threshold) onSwipeRight();
-    setDx(0);
-    startX.current = null;
+    const distance = e.clientX - startX.current;
+    suppressClick.current = Math.abs(distance) > 10;
+    if (distance < -80) onSwipeLeft();
+    else if (distance > 80) onSwipeRight();
+    resetPointer();
   };
 
   const frontText = getCardValue(card, frontKey);
@@ -281,21 +254,31 @@ function SwipeCard({
   return (
     <div className="max-w-sm mx-auto select-none">
       <div
-        className="rounded-3xl border p-8 text-center bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-lg shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer min-h-[320px] flex flex-col justify-center relative overflow-hidden"
+        className="rounded-3xl border p-8 text-center bg-linear-to-br from-card/90 to-card/70 backdrop-blur-lg shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer min-h-[320px] flex flex-col justify-center relative overflow-hidden"
         style={{
+          touchAction: "pan-y",
           transform: `translateX(${dx}px) rotate(${dx / 30}deg)`,
           transition: startX.current !== null ? "none" : "transform 0.2s ease",
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={() => { suppressClick.current = true; resetPointer(); }}
         onClick={() => {
-          if (Math.abs(dx) < 10) setShowBack((v) => !v);
+          if (suppressClick.current) { suppressClick.current = false; return; }
+          setShowBack(v => !v);
+        }}
+        tabIndex={0}
+        onKeyDown={e => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowBack(v => !v); }
+          if (e.key === 'ArrowLeft') { e.preventDefault(); onSwipeLeft(); }
+          if (e.key === 'ArrowRight') { e.preventDefault(); onSwipeRight(); }
         }}
         role="button"
         aria-label={t("cards.training.aria.flip")}
       >
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-transparent pointer-events-none" />
 
         {hintText && hintText !== "—" && !showBack && (
           <button
@@ -314,7 +297,7 @@ function SwipeCard({
         )}
 
         <div className="relative z-10">
-          <div className="text-4xl font-bold mb-4 leading-tight">
+          <div className="text-4xl font-bold mb-4 leading-tight break-words">
             {showBack ? backText : frontText}
           </div>
 

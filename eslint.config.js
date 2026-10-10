@@ -25,5 +25,10 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-unused-vars": "off",
     },
+  },
+  {
+    // These modules intentionally expose shared hooks and shadcn variants.
+    files: ["src/components/ui/*.tsx", "src/contexts/*.tsx"],
+    rules: { "react-refresh/only-export-components": "off" },
   }
 );

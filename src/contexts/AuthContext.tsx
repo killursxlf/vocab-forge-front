@@ -1,85 +1,81 @@
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { User } from '../lib/types';
-// --- 1. ИМПОРТИРУЕМ НУЖНЫЕ ФУНКЦИИ ИЗ API.TS ---
-// Я переименовал их при импорте, чтобы избежать конфликта имен
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
+import type { User } from '@/lib/types';
 import { login as apiLogin, logout as apiLogout, getProfile } from '@/lib/api';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   isLoading: boolean;
+  sessionError: boolean;
+  refreshSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
-
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true); 
-
-  useEffect(() => {
-    const checkUserSession = async () => {
-
-      try {
-        // Используем getProfile, так как токен уже должен быть подставлен перехватчиком
-        const response = await getProfile();
-        setUser(response.data);
-      } catch (error) {
-        console.log('Сессия недействительна или истекла');
-        setUser(null);
-        localStorage.removeItem('token'); // Чистим невалидный токен
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkUserSession();
-  }, []);
-
-  // --- 2. ИСПРАВЛЕНА ФУНКЦИЯ LOGIN ---
-  const login = async (email: string, password: string) => {
-    // Вызываем нашу функцию-обертку из api.ts
-    const response = await apiLogin({ email, password });
-    // Теперь api.ts сам сохранит токен.
-    // А мы установим данные пользователя в состояние.
-    // В `response.data` теперь есть и юзер, и токен, но нам нужен только юзер.
-    const { access_token, ...userData } = response.data as (User & { access_token: string });
-    setUser(userData);
-  };
-
-  // --- 3. ИСПРАВЛЕНА ФУНКЦИЯ LOGOUT ---
-  const logout = async () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const refreshSession = useCallback(async () => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setIsLoading(true);
+    setSessionError(false);
     try {
-        await apiLogout(); // Вызываем logout с сервера (если он что-то делает, например, чистит сессию)
+      const response = await getProfile(controller.signal);
+      if (!controller.signal.aborted) setUser(response.data);
     } catch (error) {
-        console.error("Ошибка при выходе с сервера:", error);
-    } finally {
-        // Гарантированно чистим данные на клиенте
+      if (controller.signal.aborted) return;
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
         setUser(null);
-        localStorage.removeItem('token');
+        queryClient.clear();
+      } else setSessionError(true);
+    } finally {
+      if (!controller.signal.aborted) setIsLoading(false);
     }
+  }, [queryClient]);
+  useEffect(() => {
+    void refreshSession();
+    const expire = () => {
+      request.current?.abort();
+      setUser(null);
+      setIsLoading(false);
+      setSessionError(false);
+      queryClient.clear();
+    };
+    window.addEventListener('auth-expired', expire);
+    return () => { request.current?.abort(); window.removeEventListener('auth-expired', expire); };
+  }, [refreshSession, queryClient]);
+  const login = async (email: string, password: string) => {
+    request.current?.abort();
+    await apiLogin({ email: email.trim(), password });
+    const response = await getProfile();
+    queryClient.clear();
+    setUser(response.data);
+    setIsLoading(false);
+    setSessionError(false);
   };
-
-  const value = { 
-    isAuthenticated: !!user, 
-    user, 
-    isLoading,
-    login, 
-    logout 
+  const logout = async () => {
+    try { await apiLogout(); }
+    catch (error) {
+      if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error;
+    }
+    request.current?.abort();
+    queryClient.clear();
+    setUser(null);
+    setIsLoading(false);
+    setSessionError(false);
   };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {!isLoading && children}
-    </AuthContext.Provider>
-  );
-};
-
-export const useAuth = (): AuthContextType => {
+  return <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, sessionError, refreshSession, login, logout }}>{children}</AuthContext.Provider>;
+}
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth должен использоваться внутри AuthProvider');
-  }
+  if (!context) throw new Error('AuthProvider is missing');
   return context;
-};
+}

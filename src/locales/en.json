@@ -29,7 +29,8 @@
   },
   "auth": {
     "common": {
-      "appName": "LexiTable"
+      "appName": "LexiTable",
+      "cancelGoogle": "Cancel Google sign-in"
     },
     "login": {
       "pageTitle": "Sign in to your account",
@@ -47,6 +48,11 @@
       "placeholders": {
         "email": "example@example.com",
         "password": "••••••••"
+      },
+      "errors": {
+        "invalidCreds": "Could not sign in. Check your email and password.",
+        "googleError": "Google sign-in failed",
+        "googleClosed": "Google sign-in window was closed"
       }
     },
     "register": {
@@ -132,12 +138,18 @@
         "saveName": "Error saving name",
         "saveEmail": "Error saving email",
         "savePassword": "Error changing password",
-        "load": "Error loading profile"
+        "load": "Error loading profile",
+        "logout": "Could not sign out. Try again."
       },
       "success": {
         "passwordChanged": "Password changed successfully"
       },
       "todayAt": "Today at {{time}}"
+    },
+    "session": {
+      "loading": "Checking session…",
+      "error": "Could not check your session. Check your connection and try again.",
+      "retry": "Try again"
     }
   },
   "navigation": {
@@ -214,7 +226,17 @@
       "word": "Word",
       "translation": "Translation",
       "example": "Example"
-    }
+    },
+    "saveError": "Could not save changes",
+    "loadError": "Could not load the table",
+    "loadSetsError": "Could not load word sets",
+    "draftStorageError": "Could not store drafts in this browser. Keep this page open until they are saved.",
+    "reservedColumn": "This column name is reserved",
+    "duplicateColumn": "A column with this name already exists",
+    "editMode": "Toggle edit mode",
+    "removeWord": "Delete word",
+    "saveWord": "Save word",
+    "removeColumn": "Delete column"
   },
   "cards": {
     "setup": {
@@ -254,7 +276,11 @@
       },
       "skeleton": {
         "title": "Loading..."
-      }
+      },
+      "loadError": "Could not load card settings",
+      "saveError": "Could not save settings. Your changes remain on this page.",
+      "countError": "Could not count matching words. Change the filters or try again.",
+      "tablesError": "Could not load tables"
     },
     "training": {
       "loading": "Loading cards...",
@@ -282,7 +308,7 @@
       "hint": {
         "title": "Hint:"
       },
-      "help": "Click to flip • Swipe: left — know, right — don’t know",
+      "help": "Click or press Enter/Space to flip. Left arrow/swipe: know; right: don’t know.",
       "aria": {
         "flip": "Flip the card",
         "showHint": "Show hint"
@@ -294,5 +320,13 @@
         "dontKnow": "Don’t know: \"{{text}}\""
       }
     }
+  },
+  "sync": {
+    "pending": "Answers waiting to sync: {{count}}",
+    "failed": "Answers are saved on this device. Sending failed; try again.",
+    "saved": "All answers saved on the server",
+    "sending": "Sending…",
+    "retry": "Send again",
+    "storageError": "Could not save the answer on this device. Free browser storage and try again."
   }
 }
