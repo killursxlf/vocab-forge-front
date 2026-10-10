@@ -1,0 +1,138 @@
+
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),{spawn}=require('node:child_process');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const dist=path.resolve('dist');
+const server=http.createServer((req,res)=>{let f=path.join(dist,decodeURIComponent(req.url.split('?')[0]));if(!fs.existsSync(f)||!fs.statSync(f).isFile())f=path.join(dist,'index.html');res.setHeader('Content-Type',f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.html')?'text/html':'application/octet-stream');res.end(fs.readFileSync(f));});
+const assert=require('node:assert/strict');
+let answerStatus=500,logoutStatus=500;
+let chrome,ws,profile; let id=0,pending=new Map(),events=[],mode='ok',requests=[];
+const columns=[{id:'example',key:'example',name:'Example'},{id:'phonetic',key:'phonetic',name:'Phonetic'}];
+const cards=[1,2].map(id=>({id,original:'word'+id,translation:'answer'+id,status:'NEW',customFields:{example:'EXAMPLE-HINT',phonetic:'PHONETIC-HINT'}}));
+let settings={frontKey:'original',backKey:'translation',hintKey:'phonetic',selectedStatuses:['all'],selectedTables:['all'],userColumns:[{key:'original',name:'Original'},{key:'translation',name:'Translation'},...columns]};
+const send=(method,params={})=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});ws.send(JSON.stringify({id:key,method,params}));});
+async function paused(p){
+ const u=new URL(p.request.url); if(u.origin===origin) return send('Fetch.continueRequest',{requestId:p.requestId});
+ if(u.hostname!=='localhost'||u.port!=='3000') return send('Fetch.failRequest',{requestId:p.requestId,errorReason:'BlockedByClient'});
+ const route=u.pathname; requests.push({route,method:p.request.method,body:p.request.postData});
+ if(mode==='hang'&&route==='/auth/profile')return;
+ let data={},status=200;
+ if(p.request.method==='OPTIONS')status=204;
+ else if(route==='/auth/profile') {if(mode==='anon'){status=401;data={message:'Unauthorized'};}else data={userId:1,email:'test@example.com',name:'Test'};}
+ else if(route==='/word-sets')data=[{id:1,title:'Test set'},{id:2,title:'Other set'}];
+ else if(route.startsWith('/word-sets/'))data={id:1,title:'Test set',customColumns:columns,words:cards,hasMore:false,total:cards.length};
+ else if(route==='/card-settings/cards')data=cards;
+ else if(route==='/card-settings/count')data={data:{count:2}};
+ else if(route==='/card-settings') {if(p.request.method==='PUT')settings={...settings,...JSON.parse(p.request.postData)};data={data:settings};}
+ else if(route==='/auth/logout'){status=logoutStatus;data={message:'Logout failed'};}
+ else if(route==='/users/me')data={id:1,email:'test@example.com',name:'Test',createdAt:'2025-01-01'};
+ else if(route.endsWith('/answer')){status=answerStatus;data={message:'Save failed'};}
+ await send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:'application/json'},{name:'Access-Control-Allow-Origin',value:origin},{name:'Access-Control-Allow-Credentials',value:'true'},{name:'Access-Control-Allow-Headers',value:'content-type'},{name:'Access-Control-Allow-Methods',value:'GET,POST,PUT,PATCH,DELETE,OPTIONS'}],body:Buffer.from(status===204?'':JSON.stringify(data)).toString('base64')});
+}
+const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
+let origin;
+async function navigate(route){await send('Page.navigate',{url:origin+route});await sleep(900);}
+async function click(selector){const p=await evaluate('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e)throw Error("missing "+'+JSON.stringify(selector)+');e.scrollIntoView();const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()');await send('Input.dispatchMouseEvent',{type:'mousePressed',...p,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',...p,button:'left',clickCount:1});await sleep(150);}
+
+(async()=>{try{
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));origin='http://127.0.0.1:'+server.address().port;
+ profile=fs.mkdtempSync(path.join(os.tmpdir(),'vocab-check-chrome-'));
+ const executable=process.env.CHROME_PATH||(process.platform==='win32'?'C:/Program Files/Google/Chrome/Application/chrome.exe':'google-chrome');
+ chrome=spawn(executable,['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
+ let port;for(let i=0;i<100;i++){await sleep(100);const f=path.join(profile,'DevToolsActivePort');if(fs.existsSync(f)){port=fs.readFileSync(f,'utf8').split('\n')[0];break;}}
+ if(!port)throw Error('Chrome did not start; set CHROME_PATH to its executable');
+ const targets=await (await fetch('http://127.0.0.1:'+port+'/json')).json();
+ ws=new WebSocket(targets.find(x=>x.type==='page').webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}else if(m.method==='Fetch.requestPaused'){paused(m.params).catch(e=>console.error('INTERCEPT',e.message));}else if(m.method==='Runtime.exceptionThrown')events.push(m.params.exceptionDetails);};
+ await send('Page.enable');await send('Runtime.enable');await send('Fetch.enable',{patterns:[{urlPattern:'*'}]});
+ await send('Page.addScriptToEvaluateOnNewDocument',{source:"localStorage.setItem('i18nextLng','en');"});
+ const text=()=>evaluate("document.body.innerText");
+ const queue=()=>evaluate("Object.keys(localStorage).filter(k=>k.startsWith('lexitable:answers:1:')).map(k=>JSON.parse(localStorage.getItem(k)))");
+ const button=label=>evaluate("[...document.querySelectorAll('button')].find(e=>e.textContent.includes("+JSON.stringify(label)+")).click()");
+ await navigate('/train?front=original&back=translation&hint=phonetic');
+ assert.equal(requests.filter(r=>r.route==='/auth/profile'&&r.method==='GET').length,1);
+ await click('button[aria-label*="hint"]');
+ assert.match(await text(),/PHONETIC-HINT/);
+ assert.doesNotMatch(await text(),/EXAMPLE-HINT/);
+ await evaluate("document.querySelector('div[role=button]').focus()");
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+ assert.match(await text(),/answer[12]/);
+ await evaluate("[...document.querySelectorAll('button')].find(e=>e.textContent.includes('I know')).click();[...document.querySelectorAll('button')].find(e=>e.textContent.includes('I know')).click()");
+ await sleep(350);
+ assert.match(await text(),/Card 2 \/ 2/);
+ assert.match(await text(),/Sending failed/);
+ const first=(await queue())[0];assert.equal((await queue()).length,1);assert.equal(first.knows,true);
+ await evaluate("window.__storageSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('lexitable:answers:'))throw Error('quota');return window.__storageSet.call(this,k,v)}");
+ await button('I know');await sleep(100);
+ assert.match(await text(),/Card 2 \/ 2/);assert.equal((await queue()).length,1);
+ assert.match(await text(),/Could not save the answer on this device/);
+ await evaluate("Storage.prototype.setItem=window.__storageSet");
+ console.log('PASS: selected hint, keyboard flip, rapid double click, durable save on HTTP 500');
+ await navigate('/train?front=original&back=translation&hint=none');
+ assert.equal((await queue())[0].id,first.id);
+ const area=await evaluate("(()=>{const r=document.querySelector('div[role=button]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...area,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:area.x-120,y:area.y,button:'left',buttons:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:area.x-120,y:area.y,button:'left',clickCount:1});
+ await sleep(350);
+ assert.match(await text(),/Card 2 \/ 2/);
+ assert.doesNotMatch(await evaluate("document.querySelector('div[role=button]').innerText"),/answer[12]/);
+ assert.equal((await queue())[1].knows,true);
+ answerStatus=200;
+ await button('Send again');await sleep(450);
+ assert.equal((await queue()).length,0);
+ assert.ok(requests.filter(r=>r.route.endsWith('/answer')&&r.method==='POST').map(r=>JSON.parse(r.body).answerId).filter(id=>id===first.id).length>=2);
+ console.log('PASS: queue survives reload, left swipe means know, next card remains unflipped, retry uses original ID');
+ const beforeOffline=requests.filter(r=>r.route.endsWith('/answer')&&r.method==='POST').length;
+ await evaluate("Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false})");
+ const nextArea=await evaluate("(()=>{const r=document.querySelector('div[role=button]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',...nextArea,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:nextArea.x+120,y:nextArea.y,button:'left',buttons:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:nextArea.x+120,y:nextArea.y,button:'left',clickCount:1});
+ await sleep(250);assert.equal((await queue())[0].knows,false);assert.match(await text(),/Results/);
+ assert.equal(requests.filter(r=>r.route.endsWith('/answer')&&r.method==='POST').length,beforeOffline);
+ await evaluate("Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>true});window.dispatchEvent(new Event('online'))");
+ await sleep(450);assert.equal((await queue()).length,0);
+ console.log('PASS: storage failure keeps the card, right swipe means don’t know, offline answers sync on reconnection');
+ await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});
+ await navigate('/app');await click('button[role=combobox]');await click('[role=option]');await sleep(350);
+ const widths=await evaluate("({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth})");
+ assert.ok(widths.scroll<=widths.client+1,JSON.stringify(widths));
+ await click('button[role=switch]');
+ assert.equal(await evaluate("document.querySelector('button[role=switch]').getAttribute('aria-checked')"),'true');
+ await send('Emulation.clearDeviceMetricsOverride');
+ await button('Add word');
+ await evaluate("(()=>{const e=document.querySelector('input[placeholder=\"Enter word\"]');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(e,'durable draft');e.dispatchEvent(new Event('input',{bubbles:true}))})()");
+ await sleep(100);
+ await navigate('/app');await click('button[role=combobox]');await click('[role=option]');await sleep(350);
+ await evaluate("document.querySelector('button[role=switch]').click()");await sleep(100);
+ assert.equal(await evaluate("document.querySelector('input[placeholder=\"Enter word\"]').value"),'durable draft');
+ console.log('PASS: mobile table fits viewport, unsaved draft survives reload');
+ await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+ await navigate('/cards');const before=requests.length;
+ const openSide = async index => {
+   await evaluate("document.querySelectorAll('button[role=combobox]')["+index+"].focus()");
+   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+   await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+   await sleep(200);
+ };
+ await openSide(0);await click('[role=option][data-state=unchecked]');
+ await evaluate("document.querySelectorAll('button[role=combobox]')[1].setAttribute('data-check','back')");
+ await openSide(1);await click('[role=option][data-state=unchecked]');
+ await sleep(1300);
+ const puts=requests.slice(before).filter(r=>r.method==='PUT');
+ assert.equal(puts.length,1);assert.equal(JSON.parse(puts[0].body).frontKey,'translation');assert.equal(JSON.parse(puts[0].body).backKey,'original');
+ console.log('PASS: quick settings changes produce one consistent save');
+ await navigate('/profile');await button('Sign out');await sleep(200);
+ assert.equal(await evaluate("location.pathname"),'/profile');assert.match(await text(),/Logout failed/);
+ console.log('PASS: failed logout retains the current session');
+ mode='hang';await navigate('/');
+ assert.ok(await evaluate("document.getElementById('root').childElementCount")>0);
+ assert.match(await text(),/Learn words/);
+ console.log('PASS: public page renders when session request hangs');
+ assert.equal(events.length,0,JSON.stringify(events));
+ console.log('Browser regression checks passed');
+ }catch(e){console.error(e.stack);process.exitCode=1;}finally{
+ if(ws&&ws.readyState===1){await send('Browser.close').catch(()=>{});ws.close();}
+ if(chrome)chrome.kill();server.close();setTimeout(()=>process.exit(process.exitCode||0),300);
+ }})();

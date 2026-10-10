@@ -8,7 +8,11 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "check": "bun run typecheck && bun run lint && bun run test",
+    "test:browser": "node scripts/browser-check.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
