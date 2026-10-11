@@ -29,8 +29,7 @@
   },
   "auth": {
     "common": {
-      "appName": "LexiTable",
-      "cancelGoogle": "Cancel Google sign-in"
+      "appName": "LexiTable"
     },
     "login": {
       "pageTitle": "Sign in to your account",
