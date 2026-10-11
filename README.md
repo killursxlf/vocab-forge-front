@@ -25,6 +25,7 @@ React 18, TypeScript, Vite 8, Tailwind CSS 4, shadcn/ui и Radix UI, TanStack Qu
 - Запущенный API из репозитория бэкенда.
 - Современный браузер: Chrome 111+, Safari 16.4+ или Firefox 128+.
 - Chrome для браузерных тестов.
+- Python 3.10+ и Firefox или Zen для проверок OAuth в Gecko.
 
 ## Быстрый старт
 
@@ -62,6 +63,8 @@ bun run dev
 
 Откройте [http://localhost:8080](http://localhost:8080).
 
+Используйте `localhost` для фронтенда, API и OAuth callback. `127.0.0.1` — другой origin: при смешивании адресов браузер блокирует запросы по CORS, cookie с `SameSite=Lax` и сообщения между основным окном и OAuth-попапом.
+
 ## Команды
 
 | Команда | Назначение |
@@ -72,6 +75,7 @@ bun run dev
 | `bun run test` | Модульные тесты |
 | `bun run check` | Проверка типов, ESLint и модульные тесты |
 | `bun run test:browser` | Браузерные проверки собранного приложения |
+| `bun run test:browser:gecko` | Проверки Google-входа в Firefox или Zen |
 | `bun audit` | Проверка уязвимостей зависимостей |
 | `bun run build` | Продакшен-сборка в `dist` |
 | `bun run build:dev` | Сборка с окружением разработки |
@@ -80,6 +84,8 @@ bun run dev
 Для браузерных проверок сначала соберите приложение с `VITE_API_BASE_URL=http://localhost:3000`. Тесты запускают Chrome и подставляют тестовый API, поэтому реальный бэкенд для них не нужен. Если Chrome установлен нестандартно, задайте путь к исполняемому файлу через `CHROME_PATH`.
 
 GitHub Actions запускает проверки, аудит зависимостей, сборку и браузерные тесты при push и pull request.
+
+Проверки Gecko сами создают тестовую сборку и отдельный профиль браузера. Путь к Firefox или Zen задаётся через `FIREFOX_PATH`; по умолчанию используется Zen в Windows и Firefox в Linux. Реальный API и аккаунт Google не требуются.
 
 ## Сборка и размещение
 

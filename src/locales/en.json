@@ -52,7 +52,8 @@
       "errors": {
         "invalidCreds": "Could not sign in. Check your email and password.",
         "googleError": "Google sign-in failed",
-        "googleClosed": "Google sign-in window was closed"
+        "googleClosed": "Google sign-in window was closed",
+        "googleTimeout": "Google sign-in timed out. Try again."
       }
     },
     "register": {

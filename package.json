@@ -12,7 +12,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "check": "bun run typecheck && bun run lint && bun run test",
-    "test:browser": "node scripts/browser-check.cjs"
+    "test:browser": "node scripts/browser-check.cjs",
+    "test:browser:gecko": "python scripts/google-auth-gecko-check.py"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
