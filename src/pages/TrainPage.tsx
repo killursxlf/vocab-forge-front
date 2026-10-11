@@ -1,6 +1,6 @@
 import AppLayout from "@/components/app/AppLayout";
 import { Button } from "@/components/ui/button";
-import { getCardSettings, getTrainingCards } from "@/lib/api";
+import { countWords, getCardSettings, getTrainingCards } from "@/lib/api";
 import { defaultCardSettings, parseCardSettings } from '@/lib/cardSettings';
 import { getCardValue } from '@/lib/cards';
 import { useAnswerSync, AnswerSyncStatus } from '@/contexts/AnswerSyncContext';
@@ -33,7 +33,9 @@ export default function Training() {
 
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const { enqueue } = useAnswerSync();
+  const { enqueue, getPendingWordIds, pending, syncing } = useAnswerSync();
+  const [totalMatching, setTotalMatching] = useState(0);
+  const [nextReviewAt, setNextReviewAt] = useState<string | null>(null);
   const answered = useRef(new Set<number>());
   const lockedUntil = useRef(0);
   const currentCard = deck[index];
@@ -45,15 +47,19 @@ export default function Training() {
     getCardSettings(controller.signal)
       .then(async response => {
         if (controller.signal.aborted) return;
-        setSettings(parseCardSettings(response.data.data));
-        const cards = await getTrainingCards(controller.signal);
+        const pendingBeforeLoad = getPendingWordIds();
+        const loaded = parseCardSettings(response.data.data);
+        setSettings(loaded);
+        const [cards, summary] = await Promise.all([
+          getTrainingCards(controller.signal),
+          countWords({ ...loaded, hintKey: loaded.hintKey === 'none' ? null : loaded.hintKey }, controller.signal),
+        ]);
         if (controller.signal.aborted) return;
-        const shuffled = [...cards];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-        }
-        setDeck(shuffled.map(card => ({ ...card })));
+        // Keep the server's due-date order and do not repeat unsynced answers.
+        const pendingAfterLoad = getPendingWordIds();
+        setDeck(cards.filter(card => !pendingBeforeLoad.has(card.id) && !pendingAfterLoad.has(card.id)).map(card => ({ ...card })));
+        setTotalMatching(summary.data.data.total);
+        setNextReviewAt(summary.data.data.nextReviewAt);
         setIndex(0);
         setKnown(0);
         setUnknown(0);
@@ -66,7 +72,7 @@ export default function Training() {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, getPendingWordIds]);
 
   const answer = (knows: boolean) => {
     if (!currentCard || answered.current.has(currentCard.id) || Date.now() < lockedUntil.current) return;
@@ -101,8 +107,12 @@ export default function Training() {
     return (
       <AppLayout>
         <div className="w-full px-4 md:px-6 lg:px-10 py-10 text-center">
-          <h1 className="text-2xl font-bold mb-4">{t("cards.training.empty.title")}</h1>
-          <p className="text-muted-foreground mb-6">{t("cards.training.empty.subtitle")}</p>
+          <h1 className="text-2xl font-bold mb-4">{t(totalMatching > 0 ? "cards.training.caughtUp.title" : "cards.training.empty.title")}</h1>
+          <p className="text-muted-foreground mb-6">{t(totalMatching > 0 ? "cards.training.caughtUp.subtitle" : "cards.training.empty.subtitle")}</p>
+          {nextReviewAt && <p className="text-muted-foreground mb-6">{t('cards.setup.nextReview', {
+            date: new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(nextReviewAt)),
+          })}</p>}
+          <AnswerSyncStatus />
           <Button onClick={() => navigate("/cards")}>{t("cards.training.empty.backBtn")}</Button>
         </div>
       </AppLayout>
@@ -115,6 +125,7 @@ export default function Training() {
         <div className="w-full px-4 md:px-6 lg:px-10 py-10">
           <h1 className="text-3xl font-bold mb-4">{t("cards.training.results.title")}</h1>
           <AnswerSyncStatus showSaved />
+          <p className="text-muted-foreground mb-4">{t('cards.setup.reviewSchedule')}</p>
           <div className="text-muted-foreground mb-6">
             {t("cards.training.results.total", { count: deck.length })}
           </div>
@@ -132,7 +143,7 @@ export default function Training() {
             <Button variant="soft" onClick={() => navigate("/cards")}>
               {t("cards.training.results.backBtn")}
             </Button>
-            <Button variant="hero" onClick={() => window.location.reload()}>
+            <Button variant="hero" disabled={pending > 0 || syncing} onClick={() => setAttempt(a => a + 1)}>
               {t("cards.training.results.retryBtn")}
             </Button>
           </div>

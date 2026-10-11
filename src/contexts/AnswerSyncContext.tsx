@@ -12,6 +12,7 @@ interface AnswerSyncState {
   failed: boolean;
   enqueue: (wordId: number, knows: boolean) => void;
   retry: () => void;
+  getPendingWordIds: () => Set<number>;
 }
 
 const AnswerSyncContext = createContext<AnswerSyncState | null>(null);
@@ -85,6 +86,9 @@ export function AnswerSyncProvider({ children }: { children: ReactNode }) {
     };
   }, [retry, refresh]);
 
+  const getPendingWordIds = useCallback(() =>
+    new Set(queue?.list().map(answer => answer.wordId) ?? []), [queue]);
+
   const enqueue = (wordId: number, knows: boolean) => {
     if (!queue) throw new Error('Not signed in');
     queue.add(wordId, knows);
@@ -92,7 +96,7 @@ export function AnswerSyncProvider({ children }: { children: ReactNode }) {
     void retry();
   };
 
-  return <AnswerSyncContext.Provider value={{ pending, syncing, failed, enqueue, retry }}>{children}</AnswerSyncContext.Provider>;
+  return <AnswerSyncContext.Provider value={{ pending, syncing, failed, enqueue, retry, getPendingWordIds }}>{children}</AnswerSyncContext.Provider>;
 }
 
 export function useAnswerSync() {

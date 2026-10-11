@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { User, Word, WordSet, WordSetPage } from './types';
 import { resolveApiUrl } from './apiUrl';
 import { getAllPages } from './pagination';
+import { parseReviewSummary } from './reviewSummary';
 export const API_BASE_URL = resolveApiUrl(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD);
 
 const api = axios.create({
@@ -117,8 +118,9 @@ export const getWordSetById = async (id: number, queryString: string): Promise<W
   };
 };
 
-export const countWords = (filters: CountWordsFilters, signal?: AbortSignal) => {
-  return api.post<{ data: { count: number } }>('/card-settings/count', filters, { signal });
+export const countWords = async (filters: CountWordsFilters, signal?: AbortSignal) => {
+  const response = await api.post('/card-settings/count', filters, { signal });
+  return { ...response, data: { data: parseReviewSummary(response.data.data) } };
 };
 
 export const getTrainingCards = (signal?: AbortSignal) => getAllPages(async (offset, limit) => {

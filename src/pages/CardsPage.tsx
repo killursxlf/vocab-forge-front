@@ -87,15 +87,16 @@ export default function CardsSetup() {
     queryKey: ['cardCount', settings],
     queryFn: async ({ signal }) => {
       const response = await countWords({ ...settings, hintKey: settings.hintKey === 'none' ? null : settings.hintKey }, signal);
-      const count: number = response.data.data.count;
-      if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid card count');
-      return count;
+      return response.data.data;
     },
     enabled: readyToCount,
+    refetchInterval: 30_000,
     retry: false,
   });
   const countLoading = readyToCount && (countQuery.isPending || countQuery.isFetching);
-  const filteredCount = readyToCount ? countQuery.data ?? 0 : 0;
+  const reviewSummary = readyToCount ? countQuery.data : undefined;
+  const filteredCount = reviewSummary?.count ?? 0;
+  const caughtUp = filteredCount === 0 && (reviewSummary?.total ?? 0) > 0;
   const canStart = readyToCount && countQuery.isSuccess && !countLoading && filteredCount > 0 && !isSaving && !error;
 
   const updateSetting = <K extends keyof CardSettings>(key: K, value: CardSettings[K]) => {
@@ -188,6 +189,7 @@ export default function CardsSetup() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">{t('cards.setup.commonColumns')}</p>
+          <p className="text-sm text-muted-foreground">{t('cards.setup.reviewSchedule')}</p>
           {sameSides && <p role="alert" className="text-sm text-destructive">{t('cards.setup.sameSides')}</p>}
           {!selectedSets.length && <p role="status" className="text-sm text-muted-foreground">{t('cards.setup.chooseSets')}</p>}
           {!settings.selectedStatuses.length && <p role="status" className="text-sm text-muted-foreground">{t('cards.setup.chooseStatuses')}</p>}
@@ -198,7 +200,13 @@ export default function CardsSetup() {
               {countLoading ? <span className="text-base text-muted-foreground">{t('cards.setup.match.counting')}</span>
                 : readyToCount && countQuery.isError ? '—' : filteredCount}
             </div>
-            {readyToCount && countQuery.isSuccess && !countLoading && !filteredCount && <p className="mt-2 text-sm text-muted-foreground">{t('cards.setup.noMatches')}</p>}
+            {readyToCount && countQuery.isSuccess && !countLoading && <>
+              <p className="mt-2 text-sm text-muted-foreground">{t('cards.setup.match.total', { count: reviewSummary!.total })}</p>
+              {!filteredCount && <p className="mt-2 text-sm text-muted-foreground">{t(caughtUp ? 'cards.setup.caughtUp' : 'cards.setup.noMatches')}</p>}
+              {reviewSummary?.nextReviewAt && <p className="mt-2 text-sm text-muted-foreground">{t('cards.setup.nextReview', {
+                date: new Intl.DateTimeFormat(i18n.resolvedLanguage ?? i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(reviewSummary.nextReviewAt)),
+              })}</p>}
+            </>}
           </div>
           <Button variant="hero" size="lg" disabled={!canStart} onClick={() => { if (canStart) navigate('/train'); }}>{t('cards.setup.button.start')}</Button>
         </div>
