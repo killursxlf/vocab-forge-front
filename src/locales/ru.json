@@ -52,7 +52,8 @@
       "errors": {
         "invalidCreds": "Не удалось войти. Проверьте почту и пароль.",
         "googleError": "Не удалось войти через Google",
-        "googleClosed": "Окно входа через Google закрыто"
+        "googleClosed": "Окно входа через Google закрыто",
+        "googleTimeout": "Время ожидания входа через Google истекло. Попробуйте ещё раз."
       }
     },
     "register": {

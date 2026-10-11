@@ -4,16 +4,22 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const dist=path.resolve('dist');
 const server=http.createServer((req,res)=>{let f=path.join(dist,decodeURIComponent(req.url.split('?')[0]));if(!fs.existsSync(f)||!fs.statSync(f).isFile())f=path.join(dist,'index.html');res.setHeader('Content-Type',f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.html')?'text/html':'application/octet-stream');res.end(fs.readFileSync(f));});
 const assert=require('node:assert/strict');
-let answerStatus=500,logoutStatus=500;
-let chrome,ws,profile; let id=0,pending=new Map(),events=[],mode='ok',requests=[];
+let answerStatus=500,logoutStatus=500,oauthResult='success',popupStorageFails=false;
+const popupTargets=new Set();
+let chrome,ws,profile,pageSession; let id=0,pending=new Map(),events=[],mode='ok',requests=[];
 const columns=[{id:'example',key:'example',name:'Example'},{id:'phonetic',key:'phonetic',name:'Phonetic'}];
 const cards=[1,2].map(id=>({id,original:'word'+id,translation:'answer'+id,status:'NEW',customFields:{example:'EXAMPLE-HINT',phonetic:'PHONETIC-HINT'}}));
 let settings={frontKey:'original',backKey:'translation',hintKey:'phonetic',selectedStatuses:['all'],selectedTables:['all'],userColumns:[{key:'original',name:'Original'},{key:'translation',name:'Translation'},...columns]};
-const send=(method,params={})=>new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});ws.send(JSON.stringify({id:key,method,params}));});
-async function paused(p){
- const u=new URL(p.request.url); if(u.origin===origin) return send('Fetch.continueRequest',{requestId:p.requestId});
- if(u.hostname!=='localhost'||u.port!=='3000') return send('Fetch.failRequest',{requestId:p.requestId,errorReason:'BlockedByClient'});
+const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{sessionId??=/^(Target|Browser)\./.test(method)?undefined:pageSession;const key=++id;pending.set(key,{resolve,reject});ws.send(JSON.stringify({id:key,method,params,...(sessionId?{sessionId}:{})}));});
+async function paused(p,sessionId){
+ const u=new URL(p.request.url); if(u.origin===origin) return send('Fetch.continueRequest',{requestId:p.requestId},sessionId);
+ if(u.hostname!=='localhost'||u.port!=='3000') return send('Fetch.failRequest',{requestId:p.requestId,errorReason:'BlockedByClient'},sessionId);
  const route=u.pathname; requests.push({route,method:p.request.method,body:p.request.postData});
+ if(route==='/auth/google'){
+  mode=oauthResult==='success'?'ok':'anon';
+  const body=oauthResult==='wait'?'Waiting for OAuth':`<script>location.replace(${JSON.stringify(origin+'/app')})</script>`;
+  return send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'text/html'},{name:'Cross-Origin-Opener-Policy',value:'same-origin'}],body:Buffer.from(body).toString('base64')},sessionId);
+ }
  if(mode==='hang'&&route==='/auth/profile')return;
  let data={},status=200;
  if(p.request.method==='OPTIONS')status=204;
@@ -26,7 +32,7 @@ async function paused(p){
  else if(route==='/auth/logout'){status=logoutStatus;data={message:'Logout failed'};}
  else if(route==='/users/me')data={id:1,email:'test@example.com',name:'Test',createdAt:'2025-01-01'};
  else if(route.endsWith('/answer')){status=answerStatus;data={message:'Save failed'};}
- await send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:'application/json'},{name:'Access-Control-Allow-Origin',value:origin},{name:'Access-Control-Allow-Credentials',value:'true'},{name:'Access-Control-Allow-Headers',value:'content-type'},{name:'Access-Control-Allow-Methods',value:'GET,POST,PUT,PATCH,DELETE,OPTIONS'}],body:Buffer.from(status===204?'':JSON.stringify(data)).toString('base64')});
+ await send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:'application/json'},{name:'Access-Control-Allow-Origin',value:origin},{name:'Access-Control-Allow-Credentials',value:'true'},{name:'Access-Control-Allow-Headers',value:'content-type'},{name:'Access-Control-Allow-Methods',value:'GET,POST,PUT,PATCH,DELETE,OPTIONS'}],body:Buffer.from(status===204?'':JSON.stringify(data)).toString('base64')},sessionId);
 }
 const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
 let origin;
@@ -41,9 +47,17 @@ async function click(selector){const p=await evaluate('(()=>{const e=document.qu
  let port;for(let i=0;i<100;i++){await sleep(100);const f=path.join(profile,'DevToolsActivePort');if(fs.existsSync(f)){port=fs.readFileSync(f,'utf8').split('\n')[0];break;}}
  if(!port)throw Error('Chrome did not start; set CHROME_PATH to its executable');
  const targets=await (await fetch('http://127.0.0.1:'+port+'/json')).json();
- ws=new WebSocket(targets.find(x=>x.type==='page').webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
- ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}else if(m.method==='Fetch.requestPaused'){paused(m.params).catch(e=>console.error('INTERCEPT',e.message));}else if(m.method==='Runtime.exceptionThrown')events.push(m.params.exceptionDetails);};
+ const version=await (await fetch('http://127.0.0.1:'+port+'/json/version')).json();
+ const mainTarget=targets.find(x=>x.type==='page').id;
+ ws=new WebSocket(version.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}else if(m.method==='Fetch.requestPaused'){paused(m.params,m.sessionId).catch(e=>console.error('INTERCEPT',e.message));}else if(m.method==='Runtime.exceptionThrown')events.push(m.params.exceptionDetails);else if(m.method==='Target.attachedToTarget'){
+  if(m.params.targetInfo.targetId===mainTarget)return;
+  popupTargets.add(m.params.targetInfo.targetId);
+  (async()=>{await send('Runtime.enable',{},m.params.sessionId);await send('Page.enable',{},m.params.sessionId);if(popupStorageFails)await send('Page.addScriptToEvaluateOnNewDocument',{source:"Storage.prototype.setItem=function(){throw Error('Storage blocked')}"},m.params.sessionId);await send('Fetch.enable',{patterns:[{urlPattern:'*'}]},m.params.sessionId);await send('Runtime.runIfWaitingForDebugger',{},m.params.sessionId);})().catch(e=>console.error('POPUP',e.message));
+ }};
+ pageSession=(await send('Target.attachToTarget',{targetId:mainTarget,flatten:true})).sessionId;
  await send('Page.enable');await send('Runtime.enable');await send('Fetch.enable',{patterns:[{urlPattern:'*'}]});
+ await send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true,filter:[{type:'page',exclude:false}]});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:"localStorage.setItem('i18nextLng','en');"});
  const text=()=>evaluate("document.body.innerText");
  const queue=()=>evaluate("Object.keys(localStorage).filter(k=>k.startsWith('lexitable:answers:1:')).map(k=>JSON.parse(localStorage.getItem(k)))");
@@ -130,9 +144,50 @@ async function click(selector){const p=await evaluate('(()=>{const e=document.qu
  assert.ok(await evaluate("document.getElementById('root').childElementCount")>0);
  assert.match(await text(),/Learn words/);
  console.log('PASS: public page renders when session request hangs');
+ mode='anon';await navigate('/register');
+ await click('button[aria-label="Sign up with Google"]');await sleep(1800);
+ assert.equal(await evaluate('location.pathname'),'/app');
+ const openTargets=await (await fetch('http://127.0.0.1:'+port+'/json')).json();
+ assert.ok(!openTargets.some(target=>popupTargets.has(target.id)),'OAuth popup must close after returning to the frontend');
+ assert.doesNotMatch(await text(),/Google sign-in window was closed/);
+ console.log('PASS: COOP-isolated OAuth popup closes and redirects the original registration tab');
+ mode='anon';oauthResult='reject';await navigate('/login');
+ await click('button[aria-label="Continue with Google"]');await sleep(1800);
+ assert.equal(await evaluate('location.pathname'),'/login');assert.match(await text(),/Google sign-in failed/);
+ console.log('PASS: popup success signal does not authenticate without a valid server session');
+ mode='anon';oauthResult='wait';await navigate('/login');
+ await evaluate('window.__nativeOpen=window.open;window.open=function(...args){return window.__oauthPopup=window.__nativeOpen.apply(this,args)}');
+ await click('button[aria-label="Continue with Google"]');await sleep(800);
+ assert.equal(await evaluate('window.__oauthPopup.closed'),true,'COOP must actually sever the WindowProxy');
+ assert.doesNotMatch(await text(),/Google sign-in window was closed/);
+ await button('Cancel Google sign-in');assert.equal(await evaluate('location.pathname'),'/login');
+ assert.equal(await evaluate('document.querySelector(\'button[aria-label="Continue with Google"]\').disabled'),false);
+ const canceledPopup=(await send('Target.getTargets')).targetInfos.find(t=>popupTargets.has(t.targetId)&&t.url==='http://localhost:3000/auth/google');
+ assert.ok(canceledPopup);
+ const canceledSession=(await send('Target.attachToTarget',{targetId:canceledPopup.targetId,flatten:true})).sessionId;
+ await send('Page.navigate',{url:origin+'/app'},canceledSession);await sleep(800);
+ assert.equal(await evaluate('location.pathname'),'/login','A canceled attempt must ignore a late success signal');
+ console.log('PASS: severed popup references do not report cancellation; explicit cancel releases the login form');
+ await navigate('/login');
+ await evaluate('window.__nativeTimeout=window.setTimeout;window.setTimeout=function(fn,delay,...args){return window.__nativeTimeout(fn,delay===120000?100:delay,...args)}');
+ await click('button[aria-label="Continue with Google"]');await sleep(500);
+ assert.match(await text(),/Google sign-in timed out/);
+ assert.equal(await evaluate('document.querySelector(\'button[aria-label="Continue with Google"]\').disabled'),false);
+ console.log('PASS: OAuth timeout releases the login form');
+ await navigate('/login');
+ popupStorageFails=true;const beforeBlockedStorage=requests.filter(r=>r.route==='/auth/google').length;
+ await click('button[aria-label="Continue with Google"]');await sleep(800);
+ assert.match(await text(),/Google sign-in failed/);
+ assert.equal(requests.filter(r=>r.route==='/auth/google').length,beforeBlockedStorage);
+ popupStorageFails=false;
+ console.log('PASS: blocked popup storage reports an error before starting OAuth');
+ oauthResult='success';await evaluate('window.open=()=>null');
+ await click('button[aria-label="Continue with Google"]');await sleep(1000);
+ assert.equal(await evaluate('location.pathname'),'/app');
+ console.log('PASS: blocked popup falls back to signing in within the original tab');
  assert.equal(events.length,0,JSON.stringify(events));
  console.log('Browser regression checks passed');
- }catch(e){console.error(e.stack);process.exitCode=1;}finally{
+ }catch(e){console.error(e.stack);console.error('Browser state:',await evaluate('({path:location.pathname,text:document.body.innerText})').catch(()=>null));console.error('Recent request routes:',requests.slice(-10).map(r=>r.route));console.error('Page targets:',(await send('Target.getTargets').catch(()=>({targetInfos:[]}))).targetInfos.filter(t=>t.type==='page').map(t=>({id:t.targetId,path:new URL(t.url).pathname,attached:t.attached,canAccessOpener:t.canAccessOpener})));process.exitCode=1;}finally{
  if(ws&&ws.readyState===1){await send('Browser.close').catch(()=>{});ws.close();}
  if(chrome)chrome.kill();server.close();setTimeout(()=>process.exit(process.exitCode||0),300);
  }})();
