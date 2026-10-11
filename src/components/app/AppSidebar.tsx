@@ -10,11 +10,14 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useTranslation } from "react-i18next";
 
 export function AppSidebar() {
   const { t } = useTranslation();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeOnMobile = () => { if (isMobile) setOpenMobile(false); };
   const location = useLocation();
   const currentPath = location.pathname;
 
@@ -29,7 +32,7 @@ export function AppSidebar() {
   ] as const;
 
   return (
-    <Sidebar collapsible="icon" className="border-r" aria-label="App sidebar">
+    <Sidebar collapsible="icon" className="border-r" aria-label={t('navigation.label')}>
       <SidebarContent className="py-4">
         <SidebarGroup>
           <SidebarGroupContent>
@@ -41,10 +44,11 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={active}
+                      tooltip={t(item.i18nKey)}
                       className="w-full justify-start px-3 py-2"
                       aria-current={active ? "page" : undefined}
                     >
-                      <NavLink to={item.url} end>
+                      <NavLink to={item.url} end onClick={closeOnMobile}>
                         <item.icon className="h-4 w-4" aria-hidden="true" />
                         <span className="ml-3">{t(item.i18nKey)}</span>
                       </NavLink>
@@ -71,10 +75,11 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={active}
+                      tooltip={t(item.i18nKey)}
                       className="w-full justify-start px-3 py-2"
                       aria-current={active ? "page" : undefined}
                     >
-                      <NavLink to={item.url} end>
+                      <NavLink to={item.url} end onClick={closeOnMobile}>
                         <item.icon className="h-4 w-4" aria-hidden="true" />
                         <span className="ml-3">{t(item.i18nKey)}</span>
                       </NavLink>

@@ -54,6 +54,7 @@ export function AnswerSyncProvider({ children }: { children: ReactNode }) {
       if (!abort.signal.aborted) {
         setFailed(false);
         void queryClient.invalidateQueries({ queryKey: ['wordSet'] });
+        void queryClient.invalidateQueries({ queryKey: ['cardCount'] });
       }
     } catch {
       if (!abort.signal.aborted) setFailed(true);

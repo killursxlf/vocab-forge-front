@@ -110,7 +110,6 @@ export default function Register() {
               </div>
             </div>
 
-            {google.pending && <Button variant="outline" onClick={google.cancel}>{t("auth.common.cancelGoogle")}</Button>}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-4">
                 <div className="space-y-2">

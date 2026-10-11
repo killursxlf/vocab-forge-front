@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { User, Word, WordSet, WordSetPage } from './types';
 import { resolveApiUrl } from './apiUrl';
+import { getAllPages } from './pagination';
 export const API_BASE_URL = resolveApiUrl(import.meta.env.VITE_API_BASE_URL, import.meta.env.PROD);
 
 const api = axios.create({
@@ -67,10 +68,10 @@ export const getProfile = async (signal?: AbortSignal) => {
 
 export const register = (data: RegisterData) => api.post('/users/register', data);
 
-export const getWordSets = async () => {
-  const { data } = await api.get<WordSet[]>('/word-sets');
+export const getWordSets = ({ signal }: { signal?: AbortSignal } = {}) => getAllPages(async (offset, limit) => {
+  const { data } = await api.get<WordSet[]>('/word-sets', { params: { offset, limit }, signal });
   return data;
-};
+});
 
 export const createWordSet = async (newSetData: Pick<WordSet, 'title' | 'customColumns'>) => {
   const { data } = await api.post<WordSet>('/word-sets', newSetData);
@@ -120,10 +121,10 @@ export const countWords = (filters: CountWordsFilters, signal?: AbortSignal) => 
   return api.post<{ data: { count: number } }>('/card-settings/count', filters, { signal });
 };
 
-export const getTrainingCards = async (signal?: AbortSignal) => {
-  const { data } = await api.get<Word[]>('/card-settings/cards', { signal });
+export const getTrainingCards = (signal?: AbortSignal) => getAllPages(async (offset, limit) => {
+  const { data } = await api.get<Word[]>('/card-settings/cards', { params: { offset, limit }, signal });
   return data;
-};
+});
 
 export const getCardSettings = (signal?: AbortSignal) => api.get('/card-settings', { signal });
 

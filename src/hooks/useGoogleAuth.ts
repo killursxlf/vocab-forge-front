@@ -29,10 +29,6 @@ export function useGoogleAuth() {
     popup.current?.close();
     popup.current = null;
   }, []);
-  const cancel = () => {
-    cleanup();
-    setPending(false);
-  };
   useEffect(() => cleanup, [cleanup]);
 
   const start = () => {
@@ -90,5 +86,5 @@ export function useGoogleAuth() {
     // Only a newly authenticated session proves completion when popup messages are lost.
     if (!user) poll.current = setInterval(() => { void checkSession(false); }, 2_000);
   };
-  return { start, cancel, pending, error };
+  return { start, pending, error };
 }

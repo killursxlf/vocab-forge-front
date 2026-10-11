@@ -2,10 +2,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   addWordToSet,
   createWordSet,
   deleteWord,
+  deleteWordSet,
   getWordSetById,
   getWordSets,
   updateWord,
@@ -37,19 +40,22 @@ interface SearchFilters {
 export type Row = Word;
 
 
-function EditableCell({ value, onSave, className }: { value: string; onSave: (value: string) => Promise<void>; className?: string }) {
+function EditableCell({ value, onSave, label, className }: { value: string; onSave: (value: string) => Promise<void>; label: string; className?: string }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
   useEffect(() => setDraft(value), [value]);
-  return <Input value={draft} className={className} disabled={saving}
-    aria-label={value || 'Word field'}
-    onChange={e => setDraft(e.target.value)}
+  return <div><Input value={draft} className={className} disabled={saving} maxLength={1000}
+    aria-label={label} aria-invalid={failed}
+    onChange={e => { setDraft(e.target.value); setFailed(false); }}
+    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
     onBlur={async () => {
       if (draft === value) return;
       setSaving(true);
-      try { await onSave(draft); } catch { setDraft(value); }
+      try { await onSave(draft); setFailed(false); } catch { setFailed(true); }
       finally { setSaving(false); }
-    }} />;
+    }} />{failed && <span className="text-xs text-destructive" role="status">{t('builder.cellNotSaved')}</span>}</div>;
 }
 
 const StatusBadge = memo(({ status }: { status: WordStatus }) => {
@@ -82,7 +88,9 @@ const WordRow = memo(({
   isEditMode,
   onUpdateCell,
   onUpdateStatus,
-  onRemove
+  onRemove,
+  hasActions,
+  busy,
 }: {
   word: Word;
   index: number;
@@ -91,6 +99,8 @@ const WordRow = memo(({
   onUpdateCell: (wordId: number, key: string, value: string) => Promise<void>;
   onUpdateStatus: (wordId: number, status: WordStatus) => void;
   onRemove: (wordId: number) => void;
+  hasActions: boolean;
+  busy: boolean;
 }) => {
   const { t } = useTranslation();
 
@@ -113,6 +123,7 @@ const WordRow = memo(({
       <td className="px-4 py-3">
         {isEditMode ? (
           <EditableCell
+            label={t('builder.tableHeaders.word')}
             value={word.original}
             onSave={value => handleCellBlur('original', value)}
             className="min-w-[120px]"
@@ -124,6 +135,7 @@ const WordRow = memo(({
       <td className="px-4 py-3">
         {isEditMode ? (
           <EditableCell
+            label={t('builder.tableHeaders.translation')}
             value={word.translation}
             onSave={value => handleCellBlur('translation', value)}
             className="min-w-[120px]"
@@ -136,6 +148,7 @@ const WordRow = memo(({
         <td key={column.key} className="px-4 py-3">
           {isEditMode ? (
             <EditableCell
+              label={column.name}
               value={word.customFields?.[column.key] ?? ""}
               onSave={value => handleCellBlur(column.key, value)}
               className="min-w-[100px]"
@@ -149,7 +162,7 @@ const WordRow = memo(({
       ))}
       <td className="px-4 py-3">
         {isEditMode ? (
-          <Select value={word.status} onValueChange={handleStatusChange}>
+          <Select value={word.status} onValueChange={handleStatusChange} disabled={busy}>
             <SelectTrigger className="w-[130px]">
               <SelectValue />
             </SelectTrigger>
@@ -163,16 +176,17 @@ const WordRow = memo(({
           <StatusBadge status={word.status} />
         )}
       </td>
-      {isEditMode && (
+      {hasActions && (
         <td className="px-4 py-3">
-          <Button
+          {isEditMode && <Button
             size="sm"
             variant="ghost"
             onClick={handleRemove} aria-label={t("builder.removeWord")}
+            disabled={busy}
             className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-4 w-4" />
-          </Button>
+          </Button>}
         </td>
       )}
     </tr>
@@ -212,6 +226,7 @@ const TempWordRow = memo(({
     <tr className="border-b bg-primary/5 border-primary/20">
       <td className="px-4 py-3">
         <Input disabled={isSaving}
+          aria-label={t('builder.tableHeaders.word')} maxLength={1000}
           value={tempWord.original}
           onChange={e => handleUpdate('original', e.target.value)}
           placeholder={t('builder.tempPlaceholders.original')}
@@ -220,6 +235,7 @@ const TempWordRow = memo(({
       </td>
       <td className="px-4 py-3">
         <Input disabled={isSaving}
+          aria-label={t('builder.tableHeaders.translation')} maxLength={1000}
           value={tempWord.translation}
           onChange={e => handleUpdate('translation', e.target.value)}
           placeholder={t('builder.tempPlaceholders.translation')}
@@ -229,6 +245,7 @@ const TempWordRow = memo(({
       {columns.map(column => (
         <td key={column.key} className="px-4 py-3">
           <Input disabled={isSaving}
+            aria-label={column.name} maxLength={1000}
             value={tempWord.customFields?.[column.key] ?? ""}
             onChange={e => handleUpdate(column.key, e.target.value)}
             className="border-primary/30 focus:border-primary"
@@ -256,7 +273,7 @@ const TempWordRow = memo(({
             size="sm"
             variant="ghost"
             onClick={handleSave} aria-label={t("builder.saveWord")}
-            disabled={isSaving}
+            disabled={isSaving || !tempWord.original.trim() || !tempWord.translation.trim()}
             className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-100 dark:hover:bg-green-900/20"
           >
             <Check className="h-4 w-4" />
@@ -265,6 +282,7 @@ const TempWordRow = memo(({
             size="sm"
             variant="ghost"
             onClick={handleRemove} aria-label={t("builder.removeWord")}
+            disabled={isSaving}
             className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
           >
             <X className="h-4 w-4" />
@@ -278,10 +296,17 @@ const TempWordRow = memo(({
 export default function VocabTableBuilder() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
-  const [selectedSetId, setSelectedSetId] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedSetId, setSelectedSetId] = useState<number | null>(() => {
+    const id = Number(searchParams.get('set'));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  });
   const [newColName, setNewColName] = useState("");
   const [newSetName, setNewSetName] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: 'set' | 'word' | 'column'; id: number; name: string; key?: string } | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -326,7 +351,7 @@ export default function VocabTableBuilder() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
-    }, 1000);
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -335,6 +360,12 @@ export default function VocabTableBuilder() {
     queryKey: ["wordSets"],
     queryFn: getWordSets,
   });
+
+  useEffect(() => {
+    if (!allSets || !selectedSetId || allSets.some(set => set.id === selectedSetId)) return;
+    setSelectedSetId(null);
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete('set'); return next; }, { replace: true });
+  }, [allSets, selectedSetId, setSearchParams]);
 
   const LIMIT = 50;
 
@@ -387,14 +418,17 @@ export default function VocabTableBuilder() {
   const allWords = useMemo(() => selectedSetPages?.pages.flatMap(p => p.words) ?? [], [selectedSetPages]);
   const columns = useMemo(() => selectedSet?.customColumns.filter(c => !["original", "translation", "word"].includes(c.key)) ?? [], [selectedSet]);
   const totalWords = useMemo(() => selectedSet?.total ?? 0, [selectedSet]);
+  const hasActions = isEditMode || tempWords.length > 0;
 
 
   const showWriteError = (error: unknown) => toast.error(errorMessage(error, t('builder.saveError')));
   const createSetMutation = useMutation({
     mutationFn: createWordSet,
     onSuccess: newSet => {
+      queryClient.setQueryData<WordSet[]>(['wordSets'], previous => [newSet, ...(previous ?? []).filter(set => set.id !== newSet.id)]);
       queryClient.invalidateQueries({ queryKey: ['wordSets'] });
-      setSelectedSetId(newSet.id);
+      handleSetChange(String(newSet.id));
+      setIsEditMode(true);
       setNewSetName("");
     },
     onError: showWriteError,
@@ -404,14 +438,19 @@ export default function VocabTableBuilder() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["wordSet", variables.setId] });
       queryClient.invalidateQueries({ queryKey: ["wordSets"] });
+      queryClient.invalidateQueries({ queryKey: ['cardCount'] });
       setNewColName("");
+      if (variables.updatedData.title) setRenaming(false);
     },
     onError: showWriteError,
   });
   const addWordMutation = useMutation({
     mutationKey: ['addWord', user.id],
     mutationFn: addWordToSet,
-    onSuccess: (_, variables) => { queryClient.invalidateQueries({ queryKey: ["wordSet", variables.setId] }); },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["wordSet", variables.setId] });
+      queryClient.invalidateQueries({ queryKey: ['cardCount'] });
+    },
     onError: showWriteError,
   });
   const updateWordMutation = useMutation({
@@ -425,7 +464,10 @@ export default function VocabTableBuilder() {
       }) : old);
     },
     onError: showWriteError,
-    onSettled: () => { queryClient.invalidateQueries({ queryKey: ["wordSet"] }); },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["wordSet"] });
+      queryClient.invalidateQueries({ queryKey: ['cardCount'] });
+    },
   });
   const deleteWordMutation = useMutation({
     mutationFn: deleteWord,
@@ -438,11 +480,41 @@ export default function VocabTableBuilder() {
       }) : old);
     },
     onError: showWriteError,
-    onSettled: () => { queryClient.invalidateQueries({ queryKey: ["wordSet"] }); },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["wordSet"] });
+      queryClient.invalidateQueries({ queryKey: ['cardCount'] });
+    },
   });
 
+  const deleteSetMutation = useMutation({
+    mutationFn: deleteWordSet,
+    onSuccess: (_, setId) => {
+      queryClient.removeQueries({ queryKey: ['wordSet', setId] });
+      queryClient.invalidateQueries({ queryKey: ['wordSets'] });
+      queryClient.invalidateQueries({ queryKey: ['cardCount'] });
+      const next = queryClient.setQueryData<Record<string, TempWord[]>>(['wordDrafts', user.id], previous => {
+        const result = { ...previous }; delete result[String(setId)]; return result;
+      });
+      try { sessionStorage.setItem(draftKey, JSON.stringify(next)); } catch { toast.error(t('builder.draftStorageError')); }
+      setSelectedSetId(null);
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete('set'); return next; }, { replace: true });
+    },
+    onError: showWriteError,
+  });
+  const deleting = deleteSetMutation.isPending || deleteWordMutation.isPending || updateSetMutation.isPending;
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    try {
+      if (deleteTarget.kind === 'set') await deleteSetMutation.mutateAsync(deleteTarget.id);
+      else if (deleteTarget.kind === 'word') await deleteWordMutation.mutateAsync(deleteTarget.id);
+      else if (selectedSet) await updateSetMutation.mutateAsync({ setId: deleteTarget.id,
+        updatedData: { customColumns: selectedSet.customColumns.filter(column => column.key !== deleteTarget.key) } });
+      setDeleteTarget(null);
+    } catch { /* The mutation reports the error; keep the confirmation open. */ }
+  };
+
   const handleCreateSet = useCallback(() => {
-    if (!newSetName.trim()) return;
+    if (!newSetName.trim() || createSetMutation.isPending) return;
     createSetMutation.mutate({
       title: newSetName.trim(),
       customColumns: [{ id: 'example', key: 'example', name: t('builder.columnsTemplate.example') }],
@@ -453,7 +525,7 @@ export default function VocabTableBuilder() {
     if (!selectedSetId) return;
 
     const newTempWord: TempWord = {
-      tempId: `temp-${Date.now()}`,
+      tempId: crypto.randomUUID(),
       original: "",
       translation: "",
       status: "NEW",
@@ -461,6 +533,7 @@ export default function VocabTableBuilder() {
     };
 
     setTempWords(prev => [...prev, newTempWord]);
+    setIsEditMode(true);
   }, [selectedSetId, setTempWords]);
 
   const saveTempWord = useCallback(async (tempId: string) => {
@@ -477,8 +550,8 @@ export default function VocabTableBuilder() {
       await addWordMutation.mutateAsync({
         setId: selectedSetId,
         newWordData: {
-          original: tempWord.original,
-          translation: tempWord.translation,
+          original: tempWord.original.trim(),
+          translation: tempWord.translation.trim(),
           status: tempWord.status,
           customFields: tempWord.customFields
         }
@@ -516,25 +589,28 @@ export default function VocabTableBuilder() {
     if (currentValue === value) return;
 
     const isFixed = key === 'original' || key === 'translation';
+    if (isFixed && !value.trim()) { toast.error(t('builder.requiredWordFields')); throw new Error('Required word field'); }
     const updatedData = isFixed ? { [key]: value } : { customFields: { [key]: value } };
     await updateWordMutation.mutateAsync({ wordId, updatedData });
-  }, [allWords, updateWordMutation]);
+  }, [allWords, updateWordMutation, t]);
 
   const updateStatus = useCallback((wordId: number, status: WordStatus) => {
     updateWordMutation.mutate({ wordId, updatedData: { status } });
   }, [updateWordMutation]);
 
   const removeRow = useCallback((wordId: number) => {
-    deleteWordMutation.mutate(wordId);
-  }, [deleteWordMutation]);
+    setDeleteTarget({ kind: 'word', id: wordId, name: allWords.find(word => word.id === wordId)?.original ?? '' });
+  }, [allWords]);
 
   const handleSetChange = useCallback((value: string) => {
     setSelectedSetId(Number(value));
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.set('set', value); return next; }, { replace: true });
+    setRenaming(false);
     // Reset filters when changing set
     setSearchQuery("");
     setStatusFilter("all");
     setDebouncedSearch("");
-  }, []);
+  }, [setSearchParams]);
 
   const addColumn = useCallback(() => {
     if (!selectedSet || !newColName.trim() || updateSetMutation.isPending) return;
@@ -547,19 +623,16 @@ export default function VocabTableBuilder() {
     updateSetMutation.mutate({
       setId: selectedSet.id,
       updatedData: {
-        customColumns: [...selectedSet.customColumns, { id: key, key, name: newColName }]
+        customColumns: [...selectedSet.customColumns, { id: key, key, name: newColName.trim() }]
       }
     });
   }, [selectedSet, newColName, updateSetMutation, t]);
 
   const removeColumn = useCallback((keyToRemove: string) => {
     if (!selectedSet) return;
-    const newColumns = selectedSet.customColumns.filter(c => c.key !== keyToRemove);
-    updateSetMutation.mutate({
-      setId: selectedSet.id,
-      updatedData: { customColumns: newColumns }
-    });
-  }, [selectedSet, updateSetMutation]);
+    setDeleteTarget({ kind: 'column', id: selectedSet.id, key: keyToRemove,
+      name: selectedSet.customColumns.find(column => column.key === keyToRemove)?.name ?? keyToRemove });
+  }, [selectedSet]);
 
   // Clear filters
   const clearFilters = useCallback(() => {
@@ -586,7 +659,7 @@ export default function VocabTableBuilder() {
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle className="text-2xl font-bold">
+            <CardTitle className="text-2xl font-bold break-words">
               {selectedSet ? selectedSet.title : t('builder.title')}
             </CardTitle>
             <CardDescription className="mt-1">
@@ -595,7 +668,9 @@ export default function VocabTableBuilder() {
           </div>
 
           {selectedSet && (
-            <div className="flex items-center gap-3 shrink-0 p-3 bg-background/50 rounded-lg border">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="hero" onClick={addTempRow}><Plus className="h-4 w-4" />{t('builder.addWord')}</Button>
+              <div className="flex items-center gap-2 rounded-lg border p-2">
               <Eye className={`h-4 w-4 transition-colors ${!isEditMode ? 'text-primary' : 'text-muted-foreground'}`} />
               <button
                 onClick={() => setIsEditMode(!isEditMode)}
@@ -608,20 +683,23 @@ export default function VocabTableBuilder() {
                 }`} />
               </button>
               <Edit3 className={`h-4 w-4 transition-colors ${isEditMode ? 'text-primary' : 'text-muted-foreground'}`} />
+              <span className="text-sm">{t(isEditMode ? 'builder.edit' : 'builder.view')}</span>
+              </div>
             </div>
           )}
         </div>
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {setsError && <div role="alert"><p>{t('builder.loadError')}</p><Button onClick={() => reloadSets()}>{t('auth.profile.retry')}</Button></div>}
+        {setsError && <div role="alert"><p>{t('builder.loadSetsError')}</p><Button onClick={() => reloadSets()}>{t('auth.profile.retry')}</Button></div>}
         {selectedSetError && <div role="alert"><p>{t('builder.loadError')}</p><Button onClick={() => refetchSelectedSet()}>{t('auth.profile.retry')}</Button></div>}
 
         {/* Control panel */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 bg-background/30 border rounded-lg">
-          <div className="space-y-3">
-            <Select onValueChange={handleSetChange} value={selectedSetId ? String(selectedSetId) : ""}>
-              <SelectTrigger className="w-full">
+          <div className="min-w-0 space-y-2">
+            <label htmlFor="editor-set" className="text-sm font-medium">{t('builder.setLabel')}</label>
+            <Select disabled={setsError || !allSets?.length} onValueChange={handleSetChange} value={selectedSetId ? String(selectedSetId) : ""}>
+              <SelectTrigger id="editor-set" className="w-full">
                 <SelectValue placeholder={t('builder.selectSetPlaceholder')} />
               </SelectTrigger>
               <SelectContent>
@@ -634,22 +712,31 @@ export default function VocabTableBuilder() {
             </Select>
           </div>
 
-          <div className="flex gap-2">
+          <form className="min-w-0 space-y-2" onSubmit={event => { event.preventDefault(); handleCreateSet(); }}>
+            <label htmlFor="new-set-title" className="text-sm font-medium">{t('builder.createSetLabel')}</label>
+            <div className="flex gap-2">
             <Input
+              id="new-set-title" maxLength={200}
               placeholder={t('builder.newSetPlaceholder')}
               value={newSetName} disabled={createSetMutation.isPending}
               onChange={e => setNewSetName(e.target.value)}
-              className="flex-1"
+              className="min-w-0 flex-1"
             />
             <Button
-              onClick={handleCreateSet}
-              disabled={createSetMutation.isPending}
+              type="submit"
+              disabled={createSetMutation.isPending || !newSetName.trim()}
               variant="soft"
             >
               {createSetMutation.isPending ? t('builder.creating') : t('builder.createSet')}
             </Button>
-          </div>
+            </div>
+          </form>
         </div>
+
+        {!setsError && !selectedSetId && <div className="rounded-lg border border-dashed p-6 text-center">
+          <h2 className="text-lg font-semibold">{t(allSets?.length ? 'builder.chooseSet.title' : 'builder.noSets.title')}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{t(allSets?.length ? 'builder.chooseSet.description' : 'builder.noSets.description')}</p>
+        </div>}
 
         {isLoadingSelectedSet && (
           <div className="flex items-center justify-center p-8">
@@ -659,23 +746,40 @@ export default function VocabTableBuilder() {
 
         {selectedSet && (
           <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setRenameTitle(selectedSet.title); setRenaming(value => !value); }}>{t('builder.renameSet')}</Button>
+              <Button variant="ghost" size="sm" className="text-destructive" disabled={savingWords} onClick={() => setDeleteTarget({ kind: 'set', id: selectedSet.id, name: selectedSet.title })}>{t('builder.deleteSet')}</Button>
+              <Button asChild variant="outline" size="sm" className="sm:ml-auto"><Link to="/cards">{t('builder.practice')}</Link></Button>
+            </div>
+            {renaming && <form className="flex flex-wrap gap-2" onSubmit={event => {
+              event.preventDefault();
+              if (!renameTitle.trim() || updateSetMutation.isPending) return;
+              updateSetMutation.mutate({ setId: selectedSet.id, updatedData: { title: renameTitle.trim() } });
+            }}>
+              <Input autoFocus aria-label={t('builder.setLabel')} maxLength={200} value={renameTitle} disabled={updateSetMutation.isPending} onChange={event => setRenameTitle(event.target.value)} className="min-w-0 flex-1" />
+              <Button type="submit" disabled={!renameTitle.trim() || updateSetMutation.isPending}>{t('builder.save')}</Button>
+              <Button type="button" variant="outline" disabled={updateSetMutation.isPending} onClick={() => setRenaming(false)}>{t('builder.cancel')}</Button>
+            </form>}
+            {tempWords.length > 0 && <p role="status" className="text-sm text-muted-foreground">{t('builder.drafts', { count: tempWords.length })}</p>}
             {/* Search and filters panel */}
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-4 p-4 bg-linear-to-r from-background/80 to-background/60 border rounded-lg backdrop-blur-sm">
                 {/* Search */}
-                <div className="flex-1 relative">
+                <div className="min-w-0 flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
+                    aria-label={t('builder.searchPlaceholder')} maxLength={200}
                     placeholder={t('builder.searchPlaceholder')}
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 bg-background/50 border-border/50 focus:bg-background transition-colors"
+                    className="pl-10 pr-10 bg-background/50 border-border/50 focus:bg-background transition-colors"
                   />
                   {searchQuery && (
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => setSearchQuery("")}
+                      aria-label={t('builder.clearSearch')}
                       className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
                     >
                       <X className="h-3 w-3" />
@@ -684,10 +788,10 @@ export default function VocabTableBuilder() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Filter className="h-4 w-4 text-muted-foreground" />
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[150px] bg-background/50 border-border/50">
+                    <SelectTrigger aria-label={t('builder.filters')} className="w-[150px] bg-background/50 border-border/50">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -714,7 +818,7 @@ export default function VocabTableBuilder() {
 
               {/* Results info */}
               {(searchQuery || statusFilter !== "all") && (
-                <div className="flex items-center justify-between px-4 py-2 bg-primary/5 border border-primary/20 rounded-lg">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-primary/5 border border-primary/20 rounded-lg">
                   <div className="flex items-center gap-2 text-sm">
                     <Search className="h-4 w-4 text-primary" />
                     <span className="text-foreground">
@@ -722,9 +826,9 @@ export default function VocabTableBuilder() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap min-w-0 items-center gap-2 text-xs text-muted-foreground">
                     {searchQuery && (
-                      <span className="px-2 py-1 bg-background rounded border">
+                      <span className="break-all px-2 py-1 bg-background rounded border">
                         {t('builder.searchChip', { query: searchQuery })}
                       </span>
                     )}
@@ -741,38 +845,35 @@ export default function VocabTableBuilder() {
             {/* Edit mode controls */}
             {isEditMode && (
               <div className="flex flex-wrap items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                <div className="flex items-center gap-2">
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
                   <Input
+                    aria-label={t('builder.newColumnPlaceholder')} maxLength={100}
                     placeholder={t('builder.newColumnPlaceholder')}
                     value={newColName} disabled={updateSetMutation.isPending}
                     onChange={e => setNewColName(e.target.value)}
-                    className="w-48"
+                    className="w-full sm:w-48"
                   />
-                  <Button variant="outline" onClick={addColumn} size="sm" disabled={updateSetMutation.isPending}>
+                  <Button variant="outline" onClick={addColumn} size="sm" disabled={updateSetMutation.isPending || !newColName.trim() || columns.length >= 50}>
                     <Plus className="h-4 w-4 mr-1" />
                     {t('builder.addColumn')}
                   </Button>
                 </div>
 
-                <div className="ml-auto">
-                  <Button variant="hero" onClick={addTempRow}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    {t('builder.addWord')}
-                  </Button>
-                </div>
+                <p className="text-sm text-muted-foreground">{t('builder.editHelp')}</p>
               </div>
             )}
 
             {/* Table */}
+            <p className="text-sm text-muted-foreground md:hidden">{t('builder.scrollTable')}</p>
             <div className="rounded-lg border bg-background overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto" role="region" aria-label={t('builder.wordsTable')} tabIndex={0}>
+                <table className="w-full min-w-[540px]">
                   <thead>
                     <tr className="border-b bg-muted/30">
                       <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
                         <div className="flex items-center gap-2">
                           <span>{t('builder.tableHeaders.word')}</span>
-                          <div className="text-xs text-muted-foreground">({allWords.length})</div>
+                          <div className="text-xs text-muted-foreground">({totalWords})</div>
                         </div>
                       </th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">{t('builder.tableHeaders.translation')}</th>
@@ -796,7 +897,7 @@ export default function VocabTableBuilder() {
                         </th>
                       ))}
                       <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">{t('builder.tableHeaders.status')}</th>
-                      {isEditMode && (
+                      {hasActions && (
                         <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">{t('builder.tableHeaders.actions')}</th>
                       )}
                     </tr>
@@ -813,6 +914,8 @@ export default function VocabTableBuilder() {
                         onUpdateCell={updateCellOnBlur}
                         onUpdateStatus={updateStatus}
                         onRemove={removeRow}
+                        hasActions={hasActions}
+                        busy={updateWordMutation.isPending || deleteWordMutation.isPending}
                       />
                     ))}
 
@@ -832,7 +935,7 @@ export default function VocabTableBuilder() {
                     {/* Loading state */}
                     {isFetchingNextPage && (
                       <tr>
-                        <td className="px-4 py-4 text-center text-muted-foreground" colSpan={columns.length + (isEditMode ? 4 : 3)}>
+                        <td className="px-4 py-4 text-center text-muted-foreground" colSpan={columns.length + (hasActions ? 4 : 3)}>
                           <div className="flex items-center justify-center gap-2">
                             <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
                             <span>{t('builder.loadingMoreRow')}</span>
@@ -842,9 +945,9 @@ export default function VocabTableBuilder() {
                     )}
 
                     {/* Empty state */}
-                    {allWords.length === 0 && tempWords.length === 0 && !isLoadingSelectedSet && (
+                    {allWords.length === 0 && tempWords.length === 0 && !isLoadingSelectedSet && !selectedSetError && (
                       <tr>
-                        <td className="px-4 py-12 text-center text-muted-foreground" colSpan={columns.length + (isEditMode ? 4 : 3)}>
+                        <td className="px-4 py-12 text-center text-muted-foreground" colSpan={columns.length + (hasActions ? 4 : 3)}>
                           <div className="flex flex-col items-center gap-4">
                             <div className="text-6xl opacity-20">
                               {(searchQuery || statusFilter !== "all") ? "🔍" : "📚"}
@@ -873,6 +976,7 @@ export default function VocabTableBuilder() {
                                   {t('builder.empty.clearFilters')}
                                 </Button>
                               )}
+                              {!searchQuery && statusFilter === 'all' && <Button className="mt-2" variant="hero" onClick={addTempRow}>{t('builder.addWord')}</Button>}
                             </div>
                           </div>
                         </td>
@@ -909,8 +1013,8 @@ export default function VocabTableBuilder() {
 
               {/* Bottom statistics */}
               {allWords.length > 0 && (
-                <div className="px-4 py-3 text-center text-sm text-muted-foreground bg-muted/5 border-t flex justify-between items-center">
-                  <div className="flex items-center gap-4">
+                <div className="px-4 py-3 text-center text-sm text-muted-foreground bg-muted/5 border-t flex flex-wrap gap-2 justify-between items-center">
+                  <div className="flex flex-wrap items-center gap-4">
                     <span>{t('builder.bottomStats', { shown: allWords.length, total: totalWords })}</span>
                     {hasNextPage && (
                       <span className="text-primary">{t('builder.moreData')}</span>
@@ -940,6 +1044,18 @@ export default function VocabTableBuilder() {
           </>
         )}
       </CardContent>
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('builder.deleteConfirm.title', { name: deleteTarget?.name })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('builder.deleteConfirm.' + (deleteTarget?.kind ?? 'word'))}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t('builder.cancel')}</AlertDialogCancel>
+            <AlertDialogAction disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={event => { event.preventDefault(); void confirmDelete(); }}>{t(deleting ? 'builder.deleting' : 'builder.delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

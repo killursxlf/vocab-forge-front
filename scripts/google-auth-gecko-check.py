@@ -156,7 +156,7 @@ try:
     parent = command('WebDriver:GetWindowHandle')
     execute("localStorage.setItem('i18nextLng','en')")
 
-    for scenario in ['normal', 'lost storage and messages', 'canceled attempt', 'rejected session']:
+    for scenario in ['normal', 'lost storage and messages', 'rejected session']:
         reset_popup_storage = scenario == 'lost storage and messages'
         drop_popup_messages = reset_popup_storage
         deny_session = scenario == 'rejected session'
@@ -177,19 +177,16 @@ try:
         time.sleep(2.2)
         assert execute('return window.__popup.closed'), 'Test must sever the opener reference'
         assert execute('return location.pathname') == '/register', 'Sign-in must wait for the provider callback'
-        if scenario == 'canceled attempt':
-            execute("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Cancel Google sign-in')).click()")
+        assert not execute('return document.body.innerText.includes("Cancel Google sign-in")')
         command('WebDriver:SwitchToWindow', {'handle': popup})
         click('#confirm')
         command('WebDriver:SwitchToWindow', {'handle': parent})
         if scenario in ['normal', 'lost storage and messages']:
             wait_for('return location.pathname === "/app"')
+            wait_for('return document.body.innerText.includes("Table builder")')
         elif scenario == 'rejected session':
             wait_for('return document.body.innerText.includes("Google sign-in failed")')
             assert execute('return location.pathname') == '/register'
-        else:
-            time.sleep(2.5)
-            assert execute('return location.pathname') == '/register', 'Canceled attempts must ignore late callbacks'
         assert popup not in command('WebDriver:GetWindowHandles'), 'OAuth popup did not close'
         print('PASS:', scenario, flush=True)
     print('Gecko OAuth regression checks passed', flush=True)
