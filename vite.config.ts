@@ -6,7 +6,7 @@ import { resolveApiUrl } from './src/lib/apiUrl.ts';
 export default defineConfig(({ command, mode }) => {
   if (command === 'build') resolveApiUrl(loadEnv(mode, process.cwd(), '').VITE_API_BASE_URL, true);
   return {
-    server: { host: '127.0.0.1', port: 8080 },
+    server: { host: 'localhost', port: 8080 },
     plugins: [react()],
     resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   };

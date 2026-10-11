@@ -63,6 +63,8 @@ bun run dev
 
 Откройте [http://localhost:8080](http://localhost:8080).
 
+Используйте `localhost` для фронтенда, API и OAuth callback. `127.0.0.1` — другой origin: при смешивании адресов браузер блокирует запросы по CORS, cookie с `SameSite=Lax` и сообщения между основным окном и OAuth-попапом.
+
 ## Команды
 
 | Команда | Назначение |
