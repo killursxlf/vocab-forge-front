@@ -4,7 +4,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const dist=path.resolve('dist');
 const server=http.createServer((req,res)=>{let f=path.join(dist,decodeURIComponent(req.url.split('?')[0]));if(!fs.existsSync(f)||!fs.statSync(f).isFile())f=path.join(dist,'index.html');res.setHeader('Content-Type',f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.html')?'text/html':'application/octet-stream');res.end(fs.readFileSync(f));});
 const assert=require('node:assert/strict');
-let answerStatus=500,logoutStatus=500,oauthResult='success',popupStorageFails=false;
+let answerStatus=500,logoutStatus=500,oauthResult='success',popupStorageFails=false,popupStorageReset=false,popupMessagesDrop=false;
 const popupTargets=new Set();
 let chrome,ws,profile,pageSession; let id=0,pending=new Map(),events=[],mode='ok',requests=[];
 const columns=[{id:'example',key:'example',name:'Example'},{id:'phonetic',key:'phonetic',name:'Phonetic'}];
@@ -17,7 +17,9 @@ async function paused(p,sessionId){
  const route=u.pathname; requests.push({route,method:p.request.method,body:p.request.postData});
  if(route==='/auth/google'){
   mode=oauthResult==='success'?'ok':'anon';
-  const body=oauthResult==='wait'?'Waiting for OAuth':`<script>location.replace(${JSON.stringify(origin+'/app')})</script>`;
+  const attempt=u.searchParams.get('popupAttempt');
+  const callback=attempt?`${origin}/auth/google/popup?attempt=${attempt}&complete=1`:origin+'/app';
+  const body=oauthResult==='wait'?'Waiting for OAuth':`<script>location.replace(${JSON.stringify(callback)})</script>`;
   return send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'text/html'},{name:'Cross-Origin-Opener-Policy',value:'same-origin'}],body:Buffer.from(body).toString('base64')},sessionId);
  }
  if(mode==='hang'&&route==='/auth/profile')return;
@@ -53,7 +55,7 @@ async function click(selector){const p=await evaluate('(()=>{const e=document.qu
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}else if(m.method==='Fetch.requestPaused'){paused(m.params,m.sessionId).catch(e=>console.error('INTERCEPT',e.message));}else if(m.method==='Runtime.exceptionThrown')events.push(m.params.exceptionDetails);else if(m.method==='Target.attachedToTarget'){
   if(m.params.targetInfo.targetId===mainTarget)return;
   popupTargets.add(m.params.targetInfo.targetId);
-  (async()=>{await send('Runtime.enable',{},m.params.sessionId);await send('Page.enable',{},m.params.sessionId);if(popupStorageFails)await send('Page.addScriptToEvaluateOnNewDocument',{source:"Storage.prototype.setItem=function(){throw Error('Storage blocked')}"},m.params.sessionId);await send('Fetch.enable',{patterns:[{urlPattern:'*'}]},m.params.sessionId);await send('Runtime.runIfWaitingForDebugger',{},m.params.sessionId);})().catch(e=>console.error('POPUP',e.message));
+  (async()=>{await send('Runtime.enable',{},m.params.sessionId);await send('Page.enable',{},m.params.sessionId);let source='';if(popupStorageFails)source+="Storage.prototype.setItem=function(){throw Error('Storage blocked')};";if(popupStorageReset)source+="const nativeGet=Storage.prototype.getItem;Storage.prototype.getItem=function(k){return k==='lexitable:google-popup'?null:nativeGet.call(this,k)};";if(popupMessagesDrop)source+='BroadcastChannel.prototype.postMessage=function(){};';if(source)await send('Page.addScriptToEvaluateOnNewDocument',{source},m.params.sessionId);await send('Fetch.enable',{patterns:[{urlPattern:'*'}]},m.params.sessionId);await send('Runtime.runIfWaitingForDebugger',{},m.params.sessionId);})().catch(e=>console.error('POPUP',e.message));
  }};
  pageSession=(await send('Target.attachToTarget',{targetId:mainTarget,flatten:true})).sessionId;
  await send('Page.enable');await send('Runtime.enable');await send('Fetch.enable',{patterns:[{urlPattern:'*'}]});
@@ -151,6 +153,13 @@ async function click(selector){const p=await evaluate('(()=>{const e=document.qu
  assert.ok(!openTargets.some(target=>popupTargets.has(target.id)),'OAuth popup must close after returning to the frontend');
  assert.doesNotMatch(await text(),/Google sign-in window was closed/);
  console.log('PASS: COOP-isolated OAuth popup closes and redirects the original registration tab');
+ mode='anon';await navigate('/register');popupStorageReset=true;popupMessagesDrop=true;
+ await click('button[aria-label="Sign up with Google"]');await sleep(2800);
+ assert.equal(await evaluate('location.pathname'),'/app','Server session polling must recover a lost popup notification');
+ const isolatedTargets=(await send('Target.getTargets')).targetInfos;
+ assert.ok(!isolatedTargets.some(target=>popupTargets.has(target.targetId)),'Explicit callback must close the popup without session storage');
+ popupStorageReset=false;popupMessagesDrop=false;
+ console.log('PASS: missing popup session storage and dropped messages still close the popup and authenticate the original tab');
  mode='anon';oauthResult='reject';await navigate('/login');
  await click('button[aria-label="Continue with Google"]');await sleep(1800);
  assert.equal(await evaluate('location.pathname'),'/login');assert.match(await text(),/Google sign-in failed/);
@@ -162,25 +171,25 @@ async function click(selector){const p=await evaluate('(()=>{const e=document.qu
  assert.doesNotMatch(await text(),/Google sign-in window was closed/);
  await button('Cancel Google sign-in');assert.equal(await evaluate('location.pathname'),'/login');
  assert.equal(await evaluate('document.querySelector(\'button[aria-label="Continue with Google"]\').disabled'),false);
- const canceledPopup=(await send('Target.getTargets')).targetInfos.find(t=>popupTargets.has(t.targetId)&&t.url==='http://localhost:3000/auth/google');
+ const canceledPopup=(await send('Target.getTargets')).targetInfos.find(t=>popupTargets.has(t.targetId)&&new URL(t.url).pathname==='/auth/google');
  assert.ok(canceledPopup);
  const canceledSession=(await send('Target.attachToTarget',{targetId:canceledPopup.targetId,flatten:true})).sessionId;
  await send('Page.navigate',{url:origin+'/app'},canceledSession);await sleep(800);
  assert.equal(await evaluate('location.pathname'),'/login','A canceled attempt must ignore a late success signal');
  console.log('PASS: severed popup references do not report cancellation; explicit cancel releases the login form');
  await navigate('/login');
- await evaluate('window.__nativeTimeout=window.setTimeout;window.setTimeout=function(fn,delay,...args){return window.__nativeTimeout(fn,delay===120000?100:delay,...args)}');
+ await evaluate('window.__nativeTimeout=window.setTimeout;window.setTimeout=function(fn,delay,...args){return window.__nativeTimeout(fn,delay===600000?100:delay,...args)}');
  await click('button[aria-label="Continue with Google"]');await sleep(500);
  assert.match(await text(),/Google sign-in timed out/);
  assert.equal(await evaluate('document.querySelector(\'button[aria-label="Continue with Google"]\').disabled'),false);
  console.log('PASS: OAuth timeout releases the login form');
  await navigate('/login');
- popupStorageFails=true;const beforeBlockedStorage=requests.filter(r=>r.route==='/auth/google').length;
- await click('button[aria-label="Continue with Google"]');await sleep(800);
- assert.match(await text(),/Google sign-in failed/);
- assert.equal(requests.filter(r=>r.route==='/auth/google').length,beforeBlockedStorage);
+ popupStorageFails=true;oauthResult='success';
+ await click('button[aria-label="Continue with Google"]');await sleep(1800);
+ assert.equal(await evaluate('location.pathname'),'/app');
  popupStorageFails=false;
- console.log('PASS: blocked popup storage reports an error before starting OAuth');
+ console.log('PASS: OAuth can finish when popup storage writes are blocked');
+ mode='anon';await navigate('/login');
  oauthResult='success';await evaluate('window.open=()=>null');
  await click('button[aria-label="Continue with Google"]');await sleep(1000);
  assert.equal(await evaluate('location.pathname'),'/app');

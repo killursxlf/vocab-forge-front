@@ -21,3 +21,11 @@ jobs:
         env:
           VITE_API_BASE_URL: http://localhost:3000
       - run: bun run test:browser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: browser-actions/setup-firefox@v1
+        id: firefox
+      - run: bun run test:browser:gecko
+        env:
+          FIREFOX_PATH: ${{ steps.firefox.outputs.firefox-path }}
