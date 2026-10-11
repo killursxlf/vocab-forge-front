@@ -1,12 +1,13 @@
 import AppLayout from "@/components/app/AppLayout";
 import { Button } from "@/components/ui/button";
-import { getTrainingCards } from "@/lib/api";
+import { getCardSettings, getTrainingCards } from "@/lib/api";
+import { defaultCardSettings, parseCardSettings } from '@/lib/cardSettings';
 import { getCardValue } from '@/lib/cards';
 import { useAnswerSync, AnswerSyncStatus } from '@/contexts/AnswerSyncContext';
 import i18n from '@/i18n';
 import { Lightbulb } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -17,21 +18,11 @@ interface TrainingCard {
   [key: string]: unknown;
 }
 
-function useQuery() {
-  const { search } = useLocation();
-  return useMemo(() => new URLSearchParams(search), [search]);
-}
-
 export default function Training() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const q = useQuery();
-
-  const frontKey = q.get("front") || "original";
-  const backKey = q.get("back") || "translation";
-  const hintKey = q.get("hint") || "none";
-  const statusParam = q.get("status") || "all";
-  const tablesParam = q.get("tables") || "";
+  const [settings, setSettings] = useState(defaultCardSettings);
+  const { frontKey, backKey, hintKey } = settings;
 
   const [deck, setDeck] = useState<TrainingCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,8 +42,11 @@ export default function Training() {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(false);
-    getTrainingCards(controller.signal)
-      .then((cards) => {
+    getCardSettings(controller.signal)
+      .then(async response => {
+        if (controller.signal.aborted) return;
+        setSettings(parseCardSettings(response.data.data));
+        const cards = await getTrainingCards(controller.signal);
         if (controller.signal.aborted) return;
         const shuffled = [...cards];
         for (let i = shuffled.length - 1; i > 0; i--) {
@@ -72,7 +66,7 @@ export default function Training() {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [frontKey, backKey, hintKey, statusParam, tablesParam, attempt]);
+  }, [attempt]);
 
   const answer = (knows: boolean) => {
     if (!currentCard || answered.current.has(currentCard.id) || Date.now() < lockedUntil.current) return;
@@ -125,16 +119,16 @@ export default function Training() {
             {t("cards.training.results.total", { count: deck.length })}
           </div>
           <div className="grid grid-cols-2 gap-4 max-w-md">
-            <div className="p-4 border rounded-lg bg-green-50 border-green-200">
-              <div className="text-sm text-green-800">{t("cards.training.results.know")}</div>
-              <div className="text-2xl font-semibold text-green-900">{known}</div>
+            <div className="p-4 border rounded-lg bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+              <div className="text-sm text-green-800 dark:text-green-200">{t("cards.training.results.know")}</div>
+              <div className="text-2xl font-semibold text-green-900 dark:text-green-100">{known}</div>
             </div>
-            <div className="p-4 border rounded-lg bg-red-50 border-red-200">
-              <div className="text-sm text-red-800">{t("cards.training.results.dontKnow")}</div>
-              <div className="text-2xl font-semibold text-red-900">{unknown}</div>
+            <div className="p-4 border rounded-lg bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800">
+              <div className="text-sm text-red-800 dark:text-red-200">{t("cards.training.results.dontKnow")}</div>
+              <div className="text-2xl font-semibold text-red-900 dark:text-red-100">{unknown}</div>
             </div>
           </div>
-          <div className="mt-8 flex gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
             <Button variant="soft" onClick={() => navigate("/cards")}>
               {t("cards.training.results.backBtn")}
             </Button>
@@ -150,7 +144,7 @@ export default function Training() {
   return (
     <AppLayout>
       <div className="w-full px-4 md:px-6 lg:px-10 py-8">
-        <div className="flex items-center justify-between mb-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 text-sm text-muted-foreground">
           <div>{t("cards.training.header.progress", { index: index + 1, total: deck.length })}</div>
           <div>{t("cards.training.header.counters", { know: known, dontKnow: unknown })}</div>
         </div>
@@ -166,7 +160,7 @@ export default function Training() {
           t={t}
         />
 
-        <div className="mt-6 flex items-center justify-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Button
             variant="soft"
             onClick={(e) => {
@@ -186,6 +180,7 @@ export default function Training() {
             {t("cards.training.actions.dontKnowBtn")}
           </Button>
         </div>
+        <div className="mt-4 text-center"><Button variant="ghost" onClick={() => navigate('/cards')}>{t('cards.training.empty.backBtn')}</Button></div>
       </div>
     </AppLayout>
   );

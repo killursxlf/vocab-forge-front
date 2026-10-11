@@ -167,6 +167,13 @@
       "brand": "LexiTable",
       "openEditor": "Open editor",
       "signUp": "Sign up"
+    },
+    "toggle": "Toggle navigation",
+    "label": "Navigation",
+    "theme": {
+      "toggle": "Toggle theme",
+      "light": "Light theme",
+      "dark": "Dark theme"
     }
   },
   "builder": {
@@ -237,7 +244,36 @@
     "editMode": "Toggle edit mode",
     "removeWord": "Delete word",
     "saveWord": "Save word",
-    "removeColumn": "Delete column"
+    "removeColumn": "Delete column",
+    "setLabel": "Word set",
+    "createSetLabel": "Create a new set",
+    "cellNotSaved": "Not saved. Focus this field and leave it to retry.",
+    "renameSet": "Rename set",
+    "deleteSet": "Delete set",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "practice": "Set up practice",
+    "clearSearch": "Clear search",
+    "wordsTable": "Words — scroll horizontally to see all columns",
+    "editHelp": "Changes to existing words are saved when you leave a field. New rows need the Save word button.",
+    "drafts": "Unsaved rows: {{count}}. Save each row using the check mark.",
+    "noSets": {
+      "title": "Create your first word set",
+      "description": "Give the set a name above, then add words and translations. You can add your own columns later."
+    },
+    "chooseSet": {
+      "title": "Choose a word set",
+      "description": "Select a set above to view its words, add new ones or change its columns."
+    },
+    "deleteConfirm": {
+      "title": "Delete “{{name}}”?",
+      "set": "This deletes the set, all its words and its unsaved rows. This cannot be undone.",
+      "word": "This word and its learning progress will be deleted. This cannot be undone.",
+      "column": "This removes the column from the table and card settings. The stored word values are kept."
+    },
+    "scrollTable": "Scroll the table horizontally to see every field and the row actions."
   },
   "cards": {
     "setup": {
@@ -245,10 +281,10 @@
       "saving": "Saving...",
       "counting": "Counting...",
       "tables": {
-        "label": "Choose tables for practice",
-        "all": "All tables",
+        "label": "Word sets for practice",
+        "all": "All sets",
         "loading": "Loading...",
-        "choose": "Choose tables"
+        "choose": "Choose word sets"
       },
       "sides": {
         "front": "Front side",
@@ -269,7 +305,7 @@
         "choose": "Choose status"
       },
       "match": {
-        "label": "Matching words",
+        "label": "Words matching your selection",
         "counting": "Counting..."
       },
       "button": {
@@ -281,7 +317,22 @@
       "loadError": "Could not load card settings",
       "saveError": "Could not save settings. Your changes remain on this page.",
       "countError": "Could not count matching words. Change the filters or try again.",
-      "tablesError": "Could not load tables"
+      "tablesError": "Could not load word sets",
+      "description": "Choose your word sets, card sides and word statuses for practice.",
+      "saved": "Saved automatically",
+      "unsaved": "Changes not saved",
+      "commonColumns": "Custom fields must exist in every selected set. Only words with both card sides filled in are included; hints can be empty.",
+      "sameSides": "Choose different fields for the front and back.",
+      "chooseSets": "Select at least one word set.",
+      "chooseStatuses": "Select at least one word status.",
+      "selectionLimit": "Select up to 100 individual sets, or use All sets.",
+      "noMatches": "No words match these filters. Adjust the selection or add words in the editor.",
+      "editSets": "Manage word sets",
+      "noSets": {
+        "title": "No word sets yet",
+        "description": "Create a set and add words with translations before setting up practice.",
+        "action": "Create a word set"
+      }
     },
     "training": {
       "loading": "Loading cards...",
