@@ -304,8 +304,9 @@
         "choose": "Choose status"
       },
       "match": {
-        "label": "Words matching your selection",
-        "counting": "Counting..."
+        "label": "Cards due for review",
+        "counting": "Counting...",
+        "total": "Matching words in total: {{count}}"
       },
       "button": {
         "start": "Start practice"
@@ -331,7 +332,10 @@
         "title": "No word sets yet",
         "description": "Create a set and add words with translations before setting up practice.",
         "action": "Create a word set"
-      }
+      },
+      "caughtUp": "All caught up. These words will return when their next review is due.",
+      "nextReview": "Next scheduled review: {{date}}",
+      "reviewSchedule": "Successful reviews are spaced 1, 3, 7, 14, 30 and 90 days apart. A forgotten word returns in 10 minutes."
     },
     "training": {
       "loading": "Loading cards...",
@@ -346,7 +350,7 @@
         "know": "Know",
         "dontKnow": "Don’t know",
         "backBtn": "Back to settings",
-        "retryBtn": "Again"
+        "retryBtn": "Check for due cards"
       },
       "header": {
         "progress": "Card {{index}} / {{total}}",
@@ -369,6 +373,10 @@
         "submitError": "Failed to submit the answer",
         "know": "Know: \"{{text}}\"",
         "dontKnow": "Don’t know: \"{{text}}\""
+      },
+      "caughtUp": {
+        "title": "All caught up",
+        "subtitle": "No cards are due right now. Come back for the next review; any pending answers are shown below."
       }
     }
   },

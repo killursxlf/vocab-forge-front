@@ -5,7 +5,7 @@ const dist=path.resolve('dist');
 const server=http.createServer((req,res)=>{let f=path.join(dist,decodeURIComponent(req.url.split('?')[0]));if(!fs.existsSync(f)||!fs.statSync(f).isFile())f=path.join(dist,'index.html');res.setHeader('Content-Type',f.endsWith('.js')?'text/javascript':f.endsWith('.css')?'text/css':f.endsWith('.html')?'text/html':'application/octet-stream');res.end(fs.readFileSync(f));});
 const assert=require('node:assert/strict');
 let answerStatus=500,logoutStatus=500,oauthResult='success',popupStorageFails=false,popupStorageReset=false,popupMessagesDrop=false;
-let countStatus=200,countDelay=0,settingsStatus=200,wordPatchStatus=200;
+let countStatus=200,countDelay=0,settingsStatus=200,wordPatchStatus=200,cardDelay=0,answerDelay=0,scheduleAnswers=false;
 let nextSetId=3;
 const popupTargets=new Set();
 let chrome,ws,profile,pageSession; let id=0,pending=new Map(),events=[],mode='ok',requests=[];
@@ -14,6 +14,9 @@ const cards=[1,2].map(id=>({id,original:'word'+id,translation:'answer'+id,status
 let wordSets=[{id:1,title:'Test set',customColumns:columns},{id:2,title:'Other set',customColumns:columns}];
 let trainingCards=cards;
 const setWords=new Map([[1,cards.map(card=>({...card}))],[2,[]]]);
+const defaultReviewAt='2000-01-01T00:00:00.000Z';
+const reviewTime=word=>Date.parse(word.nextReviewAt||defaultReviewAt);
+const isDue=word=>!word.nextReviewAt||Date.parse(word.nextReviewAt)<=Date.now();
 const hasSide=(word,key)=>{const value=key==='word'?word.original:word[key]??word.customFields?.[key];return value!==undefined&&value!==null&&value!=='';};
 let settings={frontKey:'original',backKey:'translation',hintKey:'phonetic',selectedStatuses:['all'],selectedTables:['all'],userColumns:[{key:'original',name:'Original'},{key:'translation',name:'Translation'},...columns]};
 const send=(method,params={},sessionId)=>new Promise((resolve,reject)=>{sessionId??=/^(Target|Browser)\./.test(method)?undefined:pageSession;const key=++id;pending.set(key,{resolve,reject});ws.send(JSON.stringify({id:key,method,params,...(sessionId?{sessionId}:{})}));});
@@ -48,16 +51,27 @@ async function paused(p,sessionId){
   if(p.request.method==='DELETE'){words.splice(words.indexOf(word),1);data={};}
   else {status=wordPatchStatus;if(status===200){const update=JSON.parse(p.request.postData);Object.assign(word,{...update,customFields:{...word.customFields,...update.customFields}});data=word;}else data={message:'Word save failed'};}
  }
- else if(route==='/card-settings/cards')data=trainingCards.filter(word=>hasSide(word,settings.frontKey)&&hasSide(word,settings.backKey)).slice(Number(u.searchParams.get('offset')||0),Number(u.searchParams.get('offset')||0)+Number(u.searchParams.get('limit')||100));
+ else if(route==='/card-settings/cards'){
+  const afterId=Number(u.searchParams.get('afterId')||0),afterDate=Date.parse(u.searchParams.get('afterReviewAt'));
+  const offset=Number(u.searchParams.get('offset')||0),limit=Number(u.searchParams.get('limit')||100);
+  data=trainingCards.filter(word=>isDue(word)&&hasSide(word,settings.frontKey)&&hasSide(word,settings.backKey)&&(!afterId||reviewTime(word)>afterDate||(reviewTime(word)===afterDate&&word.id>afterId)))
+   .sort((a,b)=>reviewTime(a)-reviewTime(b)||a.id-b.id).slice(offset,offset+limit).map(word=>({...word,nextReviewAt:word.nextReviewAt||defaultReviewAt}));
+  if(cardDelay)await sleep(cardDelay);
+ }
  else if(route==='/card-settings/count'){
   const filters=JSON.parse(p.request.postData);const selected=wordSets.filter(set=>filters.selectedTables.includes('all')||filters.selectedTables.includes(String(set.id)));
-  const count=selected.flatMap(set=>setWords.get(set.id)||[]).filter(word=>(filters.selectedStatuses.includes('all')||filters.selectedStatuses.includes(word.status))&&hasSide(word,filters.frontKey)&&hasSide(word,filters.backKey)).length;
-  status=countStatus;data=status===200?{data:{count}}:{message:'Count failed'};if(countDelay)await sleep(countDelay);
+  const matching=selected.flatMap(set=>setWords.get(set.id)||[]).filter(word=>(filters.selectedStatuses.includes('all')||filters.selectedStatuses.includes(word.status))&&hasSide(word,filters.frontKey)&&hasSide(word,filters.backKey));
+  const count=matching.filter(isDue).length;
+  const nextReviewAt=matching.filter(word=>!isDue(word)).map(word=>word.nextReviewAt).sort()[0]||null;
+  status=countStatus;data=status===200?{data:{count,total:matching.length,nextReviewAt}}:{message:'Count failed'};if(countDelay)await sleep(countDelay);
  }
  else if(route==='/card-settings') {if(p.request.method==='PUT'){status=settingsStatus;if(status===200)settings={...settings,...JSON.parse(p.request.postData)};}data=status===200?{data:settings}:{message:'Settings save failed'};}
  else if(route==='/auth/logout'){status=logoutStatus;data={message:'Logout failed'};}
  else if(route==='/users/me')data={id:1,email:'test@example.com',name:'Test',createdAt:'2025-01-01'};
- else if(route.endsWith('/answer')){status=answerStatus;data={message:'Save failed'};}
+ else if(route.endsWith('/answer')){
+  status=answerStatus;data={message:'Save failed'};if(answerDelay)await sleep(answerDelay);
+  if(status===200&&scheduleAnswers){const word=trainingCards.find(word=>word.id===Number(route.split('/')[2]));if(word)word.nextReviewAt=new Date(Date.now()+86400000).toISOString();}
+ }
  await send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:status,responseHeaders:[{name:'Content-Type',value:'application/json'},{name:'Access-Control-Allow-Origin',value:origin},{name:'Access-Control-Allow-Credentials',value:'true'},{name:'Access-Control-Allow-Headers',value:'content-type'},{name:'Access-Control-Allow-Methods',value:'GET,POST,PUT,PATCH,DELETE,OPTIONS'}],body:Buffer.from(status===204?'':JSON.stringify(data)).toString('base64')},sessionId);
 }
 const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
@@ -122,7 +136,10 @@ async function click(selector){
  assert.match(await text(),/Could not save the answer on this device/);
  await evaluate("Storage.prototype.setItem=window.__storageSet");
  console.log('PASS: selected hint, keyboard flip, rapid double click, durable save on HTTP 500');
+ trainingCards=[...cards,{...cards[1],id:3,original:'word3'}];setWords.set(1,trainingCards.map(card=>({...card})));
  await navigate('/train?front=original&back=translation&hint=none');
+ assert.match(await text(),/Card 1 \/ 2/);
+ assert.doesNotMatch(await evaluate("document.querySelector('div[role=button]').innerText"),/word1/);
  assert.equal((await queue())[0].id,first.id);
  const area=await evaluate("(()=>{const r=document.querySelector('div[role=button]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
  await send('Input.dispatchMouseEvent',{type:'mousePressed',...area,button:'left',clickCount:1});
@@ -147,7 +164,8 @@ async function click(selector){
  assert.equal(requests.filter(r=>r.route.endsWith('/answer')&&r.method==='POST').length,beforeOffline);
  await evaluate("Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>true});window.dispatchEvent(new Event('online'))");
  await sleep(450);assert.equal((await queue()).length,0);
- console.log('PASS: storage failure keeps the card, right swipe means don’t know, offline answers sync on reconnection');
+ console.log('PASS: storage failure keeps the card, right swipe means don’t know, offline answers sync on reconnection; unsynced words are excluded after reload');
+ trainingCards=cards;setWords.set(1,cards.map(card=>({...card})));
  await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});
  await navigate('/app');await click('button[role=combobox]');await click('[role=option]');await sleep(350);
  const widths=await evaluate("({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth})");
@@ -261,6 +279,45 @@ async function click(selector){
  assert.deepEqual(settings.selectedStatuses,[]);assert.equal(await evaluate('document.querySelector("[data-card-count]").innerText'),'0');assert.match(await text(),/Select at least one word status/);
  settings={...settings,frontKey:'translation',backKey:'original',selectedStatuses:['all'],selectedTables:['all']};
  console.log('PASS: unusable card sides are excluded from count and deck, optional hints do not exclude cards, empty selection saves as zero');
+
+ const futureDate=new Date(Date.now()+86400000).toISOString();
+ trainingCards=[
+  {...cards[0],id:301,original:'scheduled-later',nextReviewAt:futureDate},
+  {...cards[0],id:302,original:'new-due',nextReviewAt:new Date(Date.now()-1000).toISOString()},
+  {...cards[1],id:303,original:'overdue-learned',status:'LEARNED',nextReviewAt:new Date(Date.now()-86400000).toISOString()}
+ ];
+ setWords.set(1,trainingCards);settings={...settings,frontKey:'original',backKey:'translation',hintKey:'none',selectedTables:['1'],selectedStatuses:['all']};
+ await navigate('/cards');await waitFor('document.querySelector("[data-card-count]")?.innerText==="2"','Only due words should count');
+ assert.match(await text(),/Matching words in total: 3/);
+ assert.match(await text(),/Next scheduled review:/);
+ await clickButton('Start practice');await waitFor('document.body.innerText.includes("Card 1 / 2")','Due cards must form the session');
+ assert.match(await evaluate('document.querySelector("div[role=button]").innerText'),/overdue-learned/);
+ await button('I know');await sleep(350);
+ assert.match(await evaluate('document.querySelector("div[role=button]").innerText'),/new-due/);
+ await button('I know');await sleep(450);assert.match(await text(),/Results/);
+ for(const card of trainingCards)card.nextReviewAt=futureDate;
+ await clickButton('Check for due cards');await waitFor('document.body.innerText.includes("All caught up")','Completed reviews should not restart early');
+ await navigate('/cards');await waitFor('document.querySelector("[data-card-count]")?.innerText==="0"','Scheduled words must count as zero due');
+ assert.match(await text(),/All caught up/);assert.doesNotMatch(await text(),/No words match these filters/);
+ assert.equal(await evaluate('[...document.querySelectorAll("button")].find(e=>e.innerText==="Start practice").disabled'),true);
+ console.log('PASS: future cards are excluded; overdue learned cards precede new ones; counts, next date and caught-up state agree');
+ trainingCards=[{...cards[0],id:404,original:'already-answered'},{...cards[1],id:405,original:'still-due'}];setWords.set(1,trainingCards);
+ await evaluate("(()=>{const id=crypto.randomUUID();localStorage.setItem('lexitable:answers:1:'+id,JSON.stringify({id,wordId:404,knows:true,createdAt:Date.now()}))})()");
+ cardDelay=600;answerDelay=300;scheduleAnswers=true;
+ await navigate('/train');await waitFor('document.body.innerText.includes("Card 1 / 1")','An answer acknowledged while loading must still be excluded');
+ assert.match(await evaluate('document.querySelector("div[role=button]").innerText'),/still-due/);
+ assert.equal((await queue()).length,0);
+ cardDelay=0;answerDelay=0;
+ console.log('PASS: a pending answer that syncs before the deck response never reappears in the session');
+ trainingCards=Array.from({length:201},(_,index)=>({...cards[0],id:index+1,original:'word'+(index+1),nextReviewAt:new Date(Date.now()-100000).toISOString()}));setWords.set(1,trainingCards);
+ await evaluate("(()=>{const id=crypto.randomUUID();localStorage.setItem('lexitable:answers:1:'+id,JSON.stringify({id,wordId:1,knows:true,createdAt:Date.now()}))})()");
+ cardDelay=600;answerDelay=300;
+ await navigate('/train');await waitFor('document.body.innerText.includes("Card 1 / 200")','Syncing between pages must not skip the next due card');
+ assert.match(await evaluate('document.querySelector("div[role=button]").innerText'),/word2/);
+ assert.equal((await queue()).length,0);
+ cardDelay=0;answerDelay=0;scheduleAnswers=false;
+ console.log('PASS: 201 due cards minus one synced answer loads all 200 remaining cards across cursor pages');
+ trainingCards=cards;setWords.set(1,cards.map(card=>({...card})));settings={...settings,selectedTables:['all']};
 
  await send('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});await navigate('/app?set=1');
  const mobileWidth=await evaluate('({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth})');assert.ok(mobileWidth.scroll<=mobileWidth.client+1,JSON.stringify(mobileWidth));
